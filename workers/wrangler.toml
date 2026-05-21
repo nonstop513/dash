@@ -6,6 +6,6 @@ compatibility_date = "2024-09-23"
 # Run: wrangler d1 create game-analytics
 # Then paste the returned database_id below.
 [[d1_databases]]
-binding     = "DB"
+binding       = "DB"
 database_name = "game-analytics"
-database_id   = "YOUR_D1_DATABASE_ID_HERE"
+database_id   = "4d6274fc-c589-407a-ac8a-75604d65639c"
