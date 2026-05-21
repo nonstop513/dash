@@ -1,0 +1,11 @@
+name            = "game-analytics-api"
+main            = "index.js"
+compatibility_date = "2024-09-23"
+
+# D1 database binding
+# Run: wrangler d1 create game-analytics
+# Then paste the returned database_id below.
+[[d1_databases]]
+binding     = "DB"
+database_name = "game-analytics"
+database_id   = "YOUR_D1_DATABASE_ID_HERE"

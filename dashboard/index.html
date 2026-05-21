@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Game Analytics Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+  <style>
+    /* ── Design tokens ────────────────────────────────────────── */
+    :root {
+      --bg:       #0f172a;
+      --surface:  #1e293b;
+      --border:   #334155;
+      --accent:   #3b82f6;
+      --accent2:  #06b6d4;
+      --success:  #10b981;
+      --warn:     #f59e0b;
+      --text:     #f1f5f9;
+      --muted:    #94a3b8;
+      --radius:   10px;
+    }
+
+    /* ── Reset ────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; line-height: 1.5; }
+
+    /* ── Header ───────────────────────────────────────────────── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      height: 60px;
+      position: sticky; top: 0; z-index: 100;
+    }
+    .logo { font-size: 18px; font-weight: 700; color: var(--text); white-space: nowrap; }
+    .logo span { color: var(--accent); }
+    .filters { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .filter-group { display: flex; flex-direction: column; gap: 2px; }
+    .filter-group label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+    select, input[type="date"] {
+      background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 6px;
+      padding: 5px 10px; font-size: 13px; cursor: pointer;
+      transition: border-color .2s;
+    }
+    select:focus, input[type="date"]:focus { outline: none; border-color: var(--accent); }
+    .refresh-btn {
+      background: var(--accent); color: #fff;
+      border: none; border-radius: 6px; padding: 6px 16px;
+      font-size: 13px; font-weight: 600; cursor: pointer;
+      transition: opacity .2s; white-space: nowrap;
+    }
+    .refresh-btn:hover { opacity: .85; }
+    .refresh-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+    /* ── Layout ───────────────────────────────────────────────── */
+    main { padding: 24px; max-width: 1400px; margin: 0 auto; }
+
+    /* ── KPI cards ────────────────────────────────────────────── */
+    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .kpi {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px;
+    }
+    .kpi-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px; }
+    .kpi-value { font-size: 28px; font-weight: 700; color: var(--text); }
+    .kpi-sub   { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .kpi-value.accent  { color: var(--accent); }
+    .kpi-value.success { color: var(--success); }
+    .kpi-value.warn    { color: var(--warn); }
+
+    /* ── Tabs ─────────────────────────────────────────────────── */
+    .tabs { display: flex; gap: 4px; margin-bottom: 20px; }
+    .tab {
+      padding: 8px 20px; border-radius: 6px; border: 1px solid var(--border);
+      background: transparent; color: var(--muted); font-size: 14px; font-weight: 500;
+      cursor: pointer; transition: all .2s;
+    }
+    .tab:hover { color: var(--text); border-color: var(--accent); }
+    .tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .tab-panel  { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* ── Chart cards ──────────────────────────────────────────── */
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px; margin-bottom: 20px;
+    }
+    .card-title { font-size: 15px; font-weight: 600; margin-bottom: 16px; color: var(--text); }
+    .chart { width: 100%; height: 380px; }
+    .chart-lg { height: 480px; }
+
+    /* ── Grid layout ──────────────────────────────────────────── */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+
+    /* ── Status overlay ───────────────────────────────────────── */
+    .status {
+      display: flex; align-items: center; justify-content: center;
+      height: 380px; color: var(--muted); font-size: 15px; gap: 10px;
+    }
+    .spinner {
+      width: 20px; height: 20px; border: 2px solid var(--border);
+      border-top-color: var(--accent); border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── No-data state ────────────────────────────────────────── */
+    .no-cohort {
+      display: flex; align-items: center; justify-content: center;
+      height: 200px; color: var(--muted); font-style: italic;
+    }
+
+    /* ── Tooltip theme patch ──────────────────────────────────── */
+    .echarts-tooltip { border-radius: 8px !important; }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ─────────────────────────────────────────────────── -->
+<header>
+  <div class="logo">Game<span>Analytics</span></div>
+  <div class="filters">
+    <div class="filter-group">
+      <label>遊戲</label>
+      <select id="sel-game"></select>
+    </div>
+    <div class="filter-group">
+      <label>Domain</label>
+      <select id="sel-domain"><option value="ALL">所有 Domains</option></select>
+    </div>
+    <div class="filter-group">
+      <label>起始日期</label>
+      <input type="date" id="date-from" />
+    </div>
+    <div class="filter-group">
+      <label>結束日期</label>
+      <input type="date" id="date-to" />
+    </div>
+    <button class="refresh-btn" id="btn-refresh">更新</button>
+  </div>
+</header>
+
+<!-- ── Main ───────────────────────────────────────────────────── -->
+<main>
+
+  <!-- KPI cards -->
+  <div class="kpis">
+    <div class="kpi">
+      <div class="kpi-label">日均活躍玩家 (DAU)</div>
+      <div class="kpi-value accent" id="kpi-dau">—</div>
+      <div class="kpi-sub" id="kpi-dau-sub">平均 / 天</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">平均 RTP</div>
+      <div class="kpi-value success" id="kpi-rtp">—</div>
+      <div class="kpi-sub">Return to Player</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">總投注額</div>
+      <div class="kpi-value warn" id="kpi-bet">—</div>
+      <div class="kpi-sub" id="kpi-bet-sub">期間合計</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">平均每次投注</div>
+      <div class="kpi-value" id="kpi-avg-bet">—</div>
+      <div class="kpi-sub">每 Spin 平均</div>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active" data-tab="dau">DAU 每日活躍</button>
+    <button class="tab" data-tab="rtp">RTP 與投注</button>
+    <button class="tab" id="tab-cohort-btn" data-tab="cohort">Cohort 留存</button>
+  </div>
+
+  <!-- DAU Tab -->
+  <div id="panel-dau" class="tab-panel active">
+    <div class="card">
+      <div class="card-title">每日活躍玩家趨勢</div>
+      <div id="chart-dau" class="chart"></div>
+    </div>
+  </div>
+
+  <!-- RTP Tab -->
+  <div id="panel-rtp" class="tab-panel">
+    <div class="card">
+      <div class="card-title">RTP 與投注額趨勢</div>
+      <div id="chart-rtp" class="chart chart-lg"></div>
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title">每日 Spin 總次數</div>
+        <div id="chart-spins" class="chart"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">每 Spin 平均投注額</div>
+        <div id="chart-avg-bet" class="chart"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cohort Tab -->
+  <div id="panel-cohort" class="tab-panel">
+    <div class="card">
+      <div class="card-title">Cohort 留存率熱力圖 <span style="font-size:12px;color:var(--muted);font-weight:400;">（Day 0 = 首次加入日）</span></div>
+      <div id="chart-cohort" class="chart chart-lg"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">各 Day Index 平均留存率</div>
+      <div id="chart-cohort-avg" class="chart"></div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+// ── Config ───────────────────────────────────────────────────────
+// Change API_BASE to your production URL when deploying.
+// e.g. "https://game-analytics.yourname.workers.dev"
+const API_BASE = "http://localhost:8000";
+
+// ── ECharts palette ──────────────────────────────────────────────
+const COLORS = ["#3b82f6","#06b6d4","#10b981","#f59e0b","#8b5cf6","#ef4444","#f97316","#ec4899"];
+const DARK_BG  = "#0f172a";
+const SURFACE  = "#1e293b";
+const BORDER   = "#334155";
+const MUTED    = "#94a3b8";
+const TEXT     = "#f1f5f9";
+
+// ── State ─────────────────────────────────────────────────────────
+let state = { gameId: null, domain: "ALL", dateFrom: null, dateTo: null, hasCohort: false };
+let charts = {};
+
+// ── ECharts base theme ────────────────────────────────────────────
+function baseOption(extraGrid = {}) {
+  return {
+    backgroundColor: SURFACE,
+    textStyle: { color: TEXT, fontFamily: "'Segoe UI', system-ui, sans-serif" },
+    tooltip: { trigger: "axis", backgroundColor: "#1e293b", borderColor: BORDER, textStyle: { color: TEXT } },
+    legend: { textStyle: { color: MUTED }, pageTextStyle: { color: MUTED } },
+    grid: { left: 60, right: 30, top: 40, bottom: 60, containLabel: true, ...extraGrid },
+    xAxis: {
+      type: "category",
+      axisLine: { lineStyle: { color: BORDER } },
+      axisTick: { lineStyle: { color: BORDER } },
+      axisLabel: { color: MUTED, rotate: 30, fontSize: 11 },
+      splitLine: { show: false },
+    },
+    yAxis: {
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel: { color: MUTED, fontSize: 11 },
+      splitLine: { lineStyle: { color: BORDER, type: "dashed" } },
+    },
+  };
+}
+
+function makeChart(id) {
+  if (charts[id]) charts[id].dispose();
+  charts[id] = echarts.init(document.getElementById(id), null, { renderer: "canvas" });
+  return charts[id];
+}
+
+// ── Utility: format numbers ───────────────────────────────────────
+function fmt(n, digits = 0) {
+  if (n == null) return "—";
+  if (n >= 1e9) return (n / 1e9).toFixed(1) + "B";
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
+  if (n >= 1e3) return (n / 1e3).toFixed(digits > 0 ? digits : 1) + "K";
+  return n.toFixed(digits);
+}
+function fmtPct(v) { return v != null ? (v * 100).toFixed(1) + "%" : "—"; }
+
+// ── Fetch helpers ─────────────────────────────────────────────────
+async function apiFetch(path) {
+  const res = await fetch(API_BASE + path);
+  if (!res.ok) throw new Error(`API error ${res.status}: ${path}`);
+  return res.json();
+}
+
+function buildQuery(extra = {}) {
+  const p = new URLSearchParams({ game_id: state.gameId });
+  if (state.domain !== "ALL") p.set("domain", state.domain);
+  if (state.dateFrom) p.set("date_from", state.dateFrom);
+  if (state.dateTo)   p.set("date_to",   state.dateTo);
+  Object.entries(extra).forEach(([k, v]) => v != null && p.set(k, v));
+  return "?" + p.toString();
+}
+
+// ── Loading state for charts ──────────────────────────────────────
+function showLoading(chartId) {
+  const el = document.getElementById(chartId);
+  if (!el) return;
+  el.innerHTML = `<div class="status"><div class="spinner"></div>載入中…</div>`;
+}
+
+// ── KPI update ─────────────────────────────────────────────────────
+function updateKPIs(dauData, rtpData) {
+  if (dauData.length) {
+    const total  = dauData.reduce((s, r) => s + r.player_count, 0);
+    const dates  = [...new Set(dauData.map(r => r.date))];
+    const avgDau = Math.round(total / dates.length);
+    document.getElementById("kpi-dau").textContent     = fmt(avgDau);
+    document.getElementById("kpi-dau-sub").textContent = `共 ${dates.length} 天`;
+  }
+  if (rtpData.length) {
+    const avgRtp    = rtpData.reduce((s, r) => s + r.avg_rtp, 0) / rtpData.length;
+    const totalBet  = rtpData.reduce((s, r) => s + r.total_bet, 0);
+    const avgBet    = rtpData.reduce((s, r) => s + r.avg_bet, 0) / rtpData.length;
+    document.getElementById("kpi-rtp").textContent     = fmtPct(avgRtp);
+    document.getElementById("kpi-bet").textContent     = fmt(totalBet);
+    document.getElementById("kpi-avg-bet").textContent = avgBet.toFixed(2);
+  }
+}
+
+// ── DAU chart ────────────────────────────────────────────────────
+function renderDau(data) {
+  const chart  = makeChart("chart-dau");
+  const domains = [...new Set(data.map(r => r.domain))].sort();
+  const dates   = [...new Set(data.map(r => r.date))].sort();
+
+  const series = domains.map((dom, i) => {
+    const byDate = Object.fromEntries(data.filter(r => r.domain === dom).map(r => [r.date, r.player_count]));
+    return {
+      name: dom,
+      type: "line",
+      smooth: true,
+      showSymbol: false,
+      lineStyle: { width: 2 },
+      data: dates.map(d => byDate[d] ?? null),
+      color: COLORS[i % COLORS.length],
+    };
+  });
+
+  const opt = {
+    ...baseOption(),
+    legend: { top: 0, textStyle: { color: MUTED } },
+    xAxis: { ...baseOption().xAxis, data: dates },
+    yAxis: { ...baseOption().yAxis, name: "玩家人數", nameTextStyle: { color: MUTED } },
+    series,
+    tooltip: {
+      ...baseOption().tooltip,
+      trigger: "axis",
+      formatter: params => {
+        const date = params[0].axisValue;
+        return [
+          `<b>${date}</b>`,
+          ...params.map(p => `${p.marker}${p.seriesName}: <b>${fmt(p.value)}</b>`),
+        ].join("<br/>");
+      },
+    },
+  };
+  chart.setOption(opt);
+}
+
+// ── RTP chart ─────────────────────────────────────────────────────
+function renderRtp(data) {
+  const chart = makeChart("chart-rtp");
+  const dates = data.map(r => r.date);
+
+  const opt = {
+    ...baseOption({ right: 70 }),
+    legend: { top: 0, textStyle: { color: MUTED } },
+    xAxis: { ...baseOption().xAxis, data: dates },
+    yAxis: [
+      {
+        ...baseOption().yAxis,
+        name: "RTP %",
+        nameTextStyle: { color: MUTED },
+        axisLabel: { color: MUTED, formatter: v => (v * 100).toFixed(0) + "%" },
+        min: v => +(v.min * 0.97).toFixed(3),
+        max: v => +(v.max * 1.01).toFixed(3),
+      },
+      {
+        ...baseOption().yAxis,
+        name: "投注額",
+        nameTextStyle: { color: MUTED },
+        position: "right",
+        axisLabel: { color: MUTED, formatter: v => fmt(v) },
+      },
+    ],
+    series: [
+      {
+        name: "RTP",
+        type: "line",
+        smooth: true,
+        showSymbol: false,
+        yAxisIndex: 0,
+        color: COLORS[1],
+        lineStyle: { width: 2.5 },
+        data: data.map(r => r.avg_rtp),
+        tooltip: { valueFormatter: v => fmtPct(v) },
+      },
+      {
+        name: "總投注額",
+        type: "bar",
+        yAxisIndex: 1,
+        color: COLORS[0] + "99",
+        barMaxWidth: 20,
+        data: data.map(r => r.total_bet),
+        tooltip: { valueFormatter: v => fmt(v) },
+      },
+    ],
+    tooltip: { ...baseOption().tooltip, trigger: "axis" },
+  };
+  chart.setOption(opt);
+
+  // Spins chart
+  const cSpins = makeChart("chart-spins");
+  cSpins.setOption({
+    ...baseOption(),
+    xAxis: { ...baseOption().xAxis, data: dates },
+    yAxis: { ...baseOption().yAxis, name: "Spin 次數", nameTextStyle: { color: MUTED }, axisLabel: { color: MUTED, formatter: v => fmt(v) } },
+    series: [{ name: "Spin 次數", type: "bar", color: COLORS[2] + "cc", barMaxWidth: 20, data: data.map(r => r.total_spins) }],
+    tooltip: { ...baseOption().tooltip, trigger: "axis", formatter: p => `${p[0].axisValue}<br/>${p[0].marker}Spin: <b>${fmt(p[0].value)}</b>` },
+  });
+
+  // Avg bet chart
+  const cAvgBet = makeChart("chart-avg-bet");
+  cAvgBet.setOption({
+    ...baseOption(),
+    xAxis: { ...baseOption().xAxis, data: dates },
+    yAxis: { ...baseOption().yAxis, name: "平均投注", nameTextStyle: { color: MUTED } },
+    series: [{ name: "平均每 Spin", type: "line", smooth: true, showSymbol: false, color: COLORS[3], lineStyle: { width: 2 }, data: data.map(r => r.avg_bet) }],
+    tooltip: { ...baseOption().tooltip, trigger: "axis", formatter: p => `${p[0].axisValue}<br/>${p[0].marker}Avg Bet: <b>${(+p[0].value).toFixed(3)}</b>` },
+  });
+}
+
+// ── Cohort heatmap ────────────────────────────────────────────────
+function renderCohort(data) {
+  const cohortDays = [...new Set(data.map(r => r.cohort_day))].sort();
+  const dayIndices = [...new Set(data.map(r => r.day_index))].sort((a, b) => a - b);
+
+  // Build heatmap matrix: [xIndex, yIndex, value]
+  const dayIdxMap = Object.fromEntries(dayIndices.map((d, i) => [d, i]));
+  const cohortMap  = Object.fromEntries(cohortDays.map((d, i) => [d, i]));
+
+  const heatData = data.map(r => [
+    dayIdxMap[r.day_index],
+    cohortMap[r.cohort_day],
+    +(r.retention_rate * 100).toFixed(1),
+  ]);
+
+  const chart = makeChart("chart-cohort");
+  chart.setOption({
+    backgroundColor: SURFACE,
+    textStyle: { color: TEXT },
+    tooltip: {
+      position: "top",
+      backgroundColor: "#1e293b",
+      borderColor: BORDER,
+      textStyle: { color: TEXT },
+      formatter: p => {
+        const cd = cohortDays[p.data[1]];
+        const di = dayIndices[p.data[0]];
+        const rt = p.data[2];
+        return `<b>${cd}</b><br/>Day ${di}: <b>${rt}%</b>`;
+      },
+    },
+    grid: { left: 100, right: 20, top: 20, bottom: 60 },
+    xAxis: {
+      type: "category",
+      data: dayIndices,
+      name: "Day Index",
+      nameLocation: "middle",
+      nameGap: 35,
+      nameTextStyle: { color: MUTED },
+      axisLine: { lineStyle: { color: BORDER } },
+      axisLabel: { color: MUTED, fontSize: 10, interval: 4 },
+      splitArea: { show: false },
+    },
+    yAxis: {
+      type: "category",
+      data: cohortDays,
+      axisLine: { lineStyle: { color: BORDER } },
+      axisLabel: { color: MUTED, fontSize: 10 },
+      splitArea: { show: false },
+    },
+    visualMap: {
+      min: 0, max: 100,
+      calculable: true,
+      orient: "horizontal",
+      left: "right",
+      bottom: "0%",
+      textStyle: { color: MUTED },
+      inRange: { color: ["#0f172a", "#1e40af", "#3b82f6", "#06b6d4", "#10b981"] },
+      text: ["100%", "0%"],
+    },
+    series: [{
+      type: "heatmap",
+      data: heatData,
+      label: {
+        show: cohortDays.length <= 25,
+        formatter: p => p.data[2] > 0 ? p.data[2] + "%" : "",
+        fontSize: 9,
+        color: "#fff",
+      },
+      emphasis: { itemStyle: { shadowBlur: 10, shadowColor: "rgba(0,0,0,.5)" } },
+    }],
+  });
+
+  // Average retention line chart by day index
+  const avgByDay = dayIndices.map(di => {
+    const rows = data.filter(r => r.day_index === di);
+    const avg  = rows.reduce((s, r) => s + r.retention_rate, 0) / rows.length;
+    return +(avg * 100).toFixed(2);
+  });
+
+  const cAvg = makeChart("chart-cohort-avg");
+  cAvg.setOption({
+    ...baseOption(),
+    xAxis: { ...baseOption().xAxis, data: dayIndices, name: "Day Index", nameLocation: "middle", nameGap: 35, nameTextStyle: { color: MUTED }, axisLabel: { color: MUTED, fontSize: 11, interval: 4 } },
+    yAxis: { ...baseOption().yAxis, name: "平均留存率 %", nameTextStyle: { color: MUTED }, axisLabel: { color: MUTED, formatter: v => v + "%" } },
+    series: [{
+      name: "平均留存率",
+      type: "line",
+      smooth: true,
+      showSymbol: false,
+      color: COLORS[1],
+      lineStyle: { width: 2 },
+      areaStyle: { color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: COLORS[1] + "55" }, { offset: 1, color: COLORS[1] + "00" }] } },
+      data: avgByDay,
+      tooltip: { valueFormatter: v => v + "%" },
+    }],
+    tooltip: { ...baseOption().tooltip, trigger: "axis", formatter: p => `Day ${p[0].axisValue}<br/>平均留存率: <b>${p[0].value}%</b>` },
+  });
+}
+
+// ── Load and render all charts ────────────────────────────────────
+async function loadAll() {
+  if (!state.gameId) return;
+  document.getElementById("btn-refresh").disabled = true;
+
+  try {
+    const [dauData, rtpData] = await Promise.all([
+      apiFetch("/api/dau" + buildQuery()),
+      apiFetch("/api/rtp" + buildQuery()),
+    ]);
+
+    updateKPIs(dauData, rtpData);
+    renderDau(dauData);
+    renderRtp(rtpData);
+
+    if (state.hasCohort) {
+      const cohortData = await apiFetch("/api/cohort" + buildQuery({ max_day: 30 }));
+      if (cohortData.length) {
+        renderCohort(cohortData);
+      } else {
+        document.getElementById("chart-cohort").innerHTML = `<div class="no-cohort">此篩選條件無 Cohort 資料</div>`;
+      }
+    }
+  } catch (err) {
+    console.error(err);
+    alert("API 連線失敗，請確認 FastAPI 已啟動（python api.py）\n\n" + err.message);
+  } finally {
+    document.getElementById("btn-refresh").disabled = false;
+  }
+}
+
+// ── Init: load game list ──────────────────────────────────────────
+async function init() {
+  let games;
+  try {
+    games = await apiFetch("/api/games");
+  } catch {
+    alert("無法連線到 API。請先執行：\n  python aggregate.py\n  python api.py");
+    return;
+  }
+
+  const selGame = document.getElementById("sel-game");
+  games.forEach(g => {
+    const opt = document.createElement("option");
+    opt.value = g.game_id;
+    opt.textContent = `Game ${g.game_id}  (${g.date_from} ~ ${g.date_to})`;
+    selGame.appendChild(opt);
+  });
+
+  async function onGameChange() {
+    const game = games.find(g => g.game_id === selGame.value);
+    state.gameId   = game.game_id;
+    state.hasCohort = !!game.has_cohort;
+    state.dateFrom = game.date_from;
+    state.dateTo   = game.date_to;
+
+    document.getElementById("date-from").value = game.date_from;
+    document.getElementById("date-to").value   = game.date_to;
+
+    // Toggle cohort tab
+    const cohortBtn = document.getElementById("tab-cohort-btn");
+    cohortBtn.style.display = game.has_cohort ? "" : "none";
+    if (!game.has_cohort && document.querySelector(".tab.active[data-tab='cohort']")) {
+      activateTab("dau");
+    }
+
+    // Reload domain list
+    const selDomain = document.getElementById("sel-domain");
+    selDomain.innerHTML = `<option value="ALL">所有 Domains</option>`;
+    const domains = await apiFetch(`/api/domains?game_id=${game.game_id}`);
+    domains.forEach(d => {
+      const o = document.createElement("option");
+      o.value = o.textContent = d;
+      selDomain.appendChild(o);
+    });
+    state.domain = "ALL";
+
+    loadAll();
+  }
+
+  selGame.addEventListener("change", onGameChange);
+  if (games.length) onGameChange();
+}
+
+// ── Tab navigation ────────────────────────────────────────────────
+function activateTab(name) {
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === name));
+  document.querySelectorAll(".tab-panel").forEach(p => p.classList.toggle("active", p.id === "panel-" + name));
+
+  // Resize charts after panel becomes visible
+  setTimeout(() => Object.values(charts).forEach(c => c?.resize()), 100);
+}
+
+document.querySelectorAll(".tab").forEach(btn =>
+  btn.addEventListener("click", () => activateTab(btn.dataset.tab))
+);
+
+// ── Filter listeners ──────────────────────────────────────────────
+document.getElementById("sel-domain").addEventListener("change", e => { state.domain = e.target.value; });
+document.getElementById("date-from").addEventListener("change",  e => { state.dateFrom = e.target.value; });
+document.getElementById("date-to").addEventListener("change",    e => { state.dateTo   = e.target.value; });
+document.getElementById("btn-refresh").addEventListener("click", loadAll);
+
+// ── Responsive resize ─────────────────────────────────────────────
+window.addEventListener("resize", () => Object.values(charts).forEach(c => c?.resize()));
+
+// ── Boot ──────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>

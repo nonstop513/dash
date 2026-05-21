@@ -1,0 +1,18 @@
+# Large DuckDB source files (not committed — run aggregate.py to rebuild)
+*.duckdb
+
+# Generated SQLite database (run aggregate.py to rebuild)
+analytics.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# Claude internal
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
