@@ -348,7 +348,7 @@ const MUTED    = "#94a3b8";
 const TEXT     = "#f1f5f9";
 
 // ── State ─────────────────────────────────────────────────────────
-let state = { gameId: null, domain: "ALL", dateFrom: null, dateTo: null, hasCohort: false, hasWide: false };
+let state = { gameId: null, domain: "ALL", dateFrom: null, dateTo: null, hasCohort: false, hasWide: false, hasFdr: false };
 let charts = {};
 
 // ── ECharts base theme ────────────────────────────────────────────
@@ -955,7 +955,8 @@ function renderFdr(data) {
       yAxis: [
         { name: "人次", nameTextStyle: { color: MUTED }, axisLabel: { color: MUTED, formatter: v => fmt(v) },
           splitLine: { lineStyle: { color: BORDER, type: "dashed" } }, axisLine: { show: false } },
-        { name: "留存率 %", nameTextStyle: { color: MUTED }, min: 40, max: 100,
+        { name: "留存率 %", nameTextStyle: { color: MUTED },
+          min: 0,
           axisLabel: { color: MUTED, formatter: v => v + "%" },
           splitLine: { show: false }, axisLine: { show: false } },
       ],
@@ -1003,16 +1004,14 @@ async function loadAll() {
       apiFetch("/api/dau" + buildQuery()),
       apiFetch("/api/rtp" + buildQuery()),
       state.hasWide ? apiFetch(`/api/segment?game_id=${state.gameId}`)   : Promise.resolve([]),
-      state.hasWide ? apiFetch(`/api/first_day?game_id=${state.gameId}`) : Promise.resolve(null),
+      state.hasFdr  ? apiFetch(`/api/first_day?game_id=${state.gameId}`) : Promise.resolve(null),
     ]);
 
     updateKPIs(dauData, rtpData);
     renderDau(dauData);
     renderRtp(rtpData);
-    if (state.hasWide) {
-      renderSegment(segData);
-      if (fdrData) renderFdr(fdrData);
-    }
+    if (state.hasWide) renderSegment(segData);
+    if (state.hasFdr && fdrData) renderFdr(fdrData);
 
     if (state.hasCohort) {
       const [cohortData, churnData] = await Promise.all([
@@ -1053,6 +1052,7 @@ async function init() {
     state.gameId    = game.game_id;
     state.hasCohort = !!game.has_cohort;
     state.hasWide   = !!game.has_wide;
+    state.hasFdr    = !!game.has_fdr;
     const segBtn = document.getElementById("tab-seg-btn");
     const fdrBtn = document.getElementById("tab-fdr-btn");
     segBtn.style.display = game.has_wide ? "" : "none";
