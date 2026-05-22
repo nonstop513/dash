@@ -1056,7 +1056,7 @@ async function init() {
     const segBtn = document.getElementById("tab-seg-btn");
     const fdrBtn = document.getElementById("tab-fdr-btn");
     segBtn.style.display = game.has_wide ? "" : "none";
-    fdrBtn.style.display = game.has_wide ? "" : "none";
+    fdrBtn.style.display = game.has_fdr  ? "" : "none";
     state.dateFrom = game.date_from;
     state.dateTo   = game.date_to;
 
@@ -1072,9 +1072,8 @@ async function init() {
     if (!game.has_cohort && (activeTab?.dataset.tab === "cohort" || activeTab?.dataset.tab === "churn")) {
       activateTab("dau");
     }
-    if (!game.has_wide && (activeTab?.dataset.tab === "seg" || activeTab?.dataset.tab === "fdr")) {
-      activateTab("dau");
-    }
+    if (!game.has_wide && activeTab?.dataset.tab === "seg") activateTab("dau");
+    if (!game.has_fdr  && activeTab?.dataset.tab === "fdr") activateTab("dau");
 
     // Reload domain list
     const selDomain = document.getElementById("sel-domain");
