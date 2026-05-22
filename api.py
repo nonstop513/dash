@@ -140,6 +140,25 @@ def get_rtp(
     return [dict(r) for r in rows]
 
 
+@app.get("/api/segment")
+def get_segment(game_id: str = Query(...)):
+    """
+    Return cross-segmentation matrix: play_days × total_spins.
+    Each cell contains player_count, player_pct, bet_pct, avg_bet_per_player.
+    Only available for games with wide data (has_wide=1).
+    """
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT day_seg, spin_seg, player_count, player_pct,
+                  total_bet, bet_pct, avg_bet_per_player
+           FROM segment_cross WHERE game_id=?
+           ORDER BY day_seg, spin_seg""",
+        [game_id]
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 @app.get("/api/churn")
 def get_churn(game_id: str = Query(...)):
     """

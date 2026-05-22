@@ -178,6 +178,7 @@
     <button class="tab" data-tab="rtp">RTP 與投注</button>
     <button class="tab" id="tab-cohort-btn" data-tab="cohort">Cohort 留存</button>
     <button class="tab" id="tab-churn-btn" data-tab="churn">流失分析</button>
+    <button class="tab" id="tab-seg-btn" data-tab="seg">分群貢獻</button>
   </div>
 
   <!-- DAU Tab -->
@@ -202,6 +203,27 @@
       <div class="card">
         <div class="card-title">每 Spin 平均投注額</div>
         <div id="chart-avg-bet" class="chart"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Segment Tab -->
+  <div id="panel-seg" class="tab-panel">
+    <div class="card">
+      <div class="card-title">
+        遊玩天數 × 總 Spin 數 — 押注貢獻熱力圖
+        <span style="font-size:12px;color:var(--muted);font-weight:400;margin-left:8px">顏色深度 = 佔總押注 %，數字同時顯示玩家人數</span>
+      </div>
+      <div id="chart-seg-heatmap" class="chart chart-lg"></div>
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title">各天數群的押注貢獻 %</div>
+        <div id="chart-seg-day" class="chart"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">各 Spin 群的押注貢獻 %</div>
+        <div id="chart-seg-spin" class="chart"></div>
       </div>
     </div>
   </div>
@@ -277,7 +299,7 @@ const MUTED    = "#94a3b8";
 const TEXT     = "#f1f5f9";
 
 // ── State ─────────────────────────────────────────────────────────
-let state = { gameId: null, domain: "ALL", dateFrom: null, dateTo: null, hasCohort: false };
+let state = { gameId: null, domain: "ALL", dateFrom: null, dateTo: null, hasCohort: false, hasWide: false };
 let charts = {};
 
 // ── ECharts base theme ────────────────────────────────────────────
@@ -575,6 +597,148 @@ function renderCohort(data) {
   });
 }
 
+// ── Segment cross charts ──────────────────────────────────────────
+const DAY_LABELS  = ["1天", "2-3天", "4-7天", "8-14天", "15天+"];
+const SPIN_LABELS = ["1-100", "101-500", "501-2000", "2001-10000", "10000+"];
+
+function renderSegment(data) {
+  if (!data.length) {
+    document.getElementById("panel-seg").innerHTML =
+      `<div class="no-cohort">此遊戲無分群資料（需要 Wide DB）</div>`;
+    return;
+  }
+
+  // Build lookup: [day][spin] → cell
+  const lookup = {};
+  data.forEach(r => {
+    if (!lookup[r.day_seg]) lookup[r.day_seg] = {};
+    lookup[r.day_seg][r.spin_seg] = r;
+  });
+
+  // --- Heatmap: bet_pct per cell ---
+  const heatData = [];
+  DAY_LABELS.forEach((d, di) => {
+    SPIN_LABELS.forEach((s, si) => {
+      const cell = lookup[d]?.[s];
+      heatData.push([si, di, cell ? +cell.bet_pct.toFixed(2) : 0, cell?.player_count ?? 0, cell?.player_pct ?? 0, cell?.avg_bet_per_player ?? 0]);
+    });
+  });
+
+  const heatChart = makeChart("chart-seg-heatmap");
+  heatChart.setOption({
+    backgroundColor: SURFACE,
+    textStyle: { color: TEXT },
+    tooltip: {
+      position: "top",
+      backgroundColor: "#1e293b", borderColor: BORDER, textStyle: { color: TEXT },
+      formatter: p => {
+        const [si, di, betPct, players, playerPct, avgBet] = p.data;
+        return [
+          `<b>${DAY_LABELS[di]}  ×  ${SPIN_LABELS[si]}</b>`,
+          `押注貢獻：<b>${betPct}%</b>`,
+          `玩家人數：<b>${players.toLocaleString()}</b>（${playerPct.toFixed(1)}%）`,
+          `人均押注：<b>${fmt(avgBet)}</b>`,
+        ].join("<br/>");
+      },
+    },
+    grid: { left: 70, right: 120, top: 20, bottom: 50 },
+    xAxis: {
+      type: "category", data: SPIN_LABELS, name: "總 Spin 數",
+      nameLocation: "middle", nameGap: 32, nameTextStyle: { color: MUTED },
+      axisLine: { lineStyle: { color: BORDER } }, axisLabel: { color: MUTED, fontSize: 11 },
+    },
+    yAxis: {
+      type: "category", data: DAY_LABELS, name: "遊玩天數",
+      nameLocation: "middle", nameGap: 55, nameTextStyle: { color: MUTED },
+      axisLine: { lineStyle: { color: BORDER } }, axisLabel: { color: MUTED, fontSize: 11 },
+    },
+    visualMap: {
+      min: 0, max: 35, calculable: true,
+      orient: "vertical", right: 10, top: "center",
+      textStyle: { color: MUTED }, text: ["35%", "0%"],
+      inRange: { color: ["#0f172a", "#1e3a5f", "#1d4ed8", "#3b82f6", "#06b6d4", "#10b981"] },
+    },
+    series: [{
+      type: "heatmap",
+      data: heatData.map(d => [d[0], d[1], d[2]]),
+      label: {
+        show: true,
+        formatter: p => {
+          const cell = heatData.find(d => d[0] === p.data[0] && d[1] === p.data[1]);
+          if (!cell || cell[2] === 0) return "";
+          return `${cell[2]}%\n${(cell[3]/1000).toFixed(1)}K人`;
+        },
+        fontSize: 10, color: "#fff",
+        rich: { bold: { fontWeight: "bold" } },
+      },
+      emphasis: { itemStyle: { shadowBlur: 12, shadowColor: "rgba(0,0,0,.5)" } },
+    }],
+  });
+
+  // --- Bar: bet % by day group ---
+  const dayTotals = DAY_LABELS.map(d => ({
+    label: d,
+    betPct: SPIN_LABELS.reduce((s, sp) => s + (lookup[d]?.[sp]?.bet_pct ?? 0), 0),
+    playerPct: SPIN_LABELS.reduce((s, sp) => s + (lookup[d]?.[sp]?.player_pct ?? 0), 0),
+  }));
+
+  const dayChart = makeChart("chart-seg-day");
+  dayChart.setOption({
+    ...baseOption(),
+    xAxis: { ...baseOption().xAxis, data: dayTotals.map(d => d.label) },
+    yAxis: { ...baseOption().yAxis, name: "押注貢獻 %", nameTextStyle: { color: MUTED }, axisLabel: { color: MUTED, formatter: v => v + "%" } },
+    series: [
+      {
+        name: "押注貢獻",
+        type: "bar", barMaxWidth: 50, color: COLORS[0],
+        data: dayTotals.map(d => +d.betPct.toFixed(2)),
+        label: { show: true, position: "top", formatter: p => p.value + "%", color: TEXT, fontSize: 11 },
+      },
+      {
+        name: "玩家佔比",
+        type: "line", yAxisIndex: 0, color: COLORS[2],
+        lineStyle: { width: 2 }, symbol: "circle", symbolSize: 7,
+        data: dayTotals.map(d => +d.playerPct.toFixed(2)),
+        label: { show: true, position: "top", formatter: p => p.value + "%", color: COLORS[2], fontSize: 10 },
+        tooltip: { valueFormatter: v => v + "% 玩家" },
+      },
+    ],
+    legend: { top: 0, textStyle: { color: MUTED } },
+    tooltip: { ...baseOption().tooltip, trigger: "axis" },
+  });
+
+  // --- Bar: bet % by spin group ---
+  const spinTotals = SPIN_LABELS.map(s => ({
+    label: s,
+    betPct: DAY_LABELS.reduce((sum, d) => sum + (lookup[d]?.[s]?.bet_pct ?? 0), 0),
+    playerPct: DAY_LABELS.reduce((sum, d) => sum + (lookup[d]?.[s]?.player_pct ?? 0), 0),
+  }));
+
+  const spinChart = makeChart("chart-seg-spin");
+  spinChart.setOption({
+    ...baseOption(),
+    xAxis: { ...baseOption().xAxis, data: spinTotals.map(s => s.label), axisLabel: { color: MUTED, fontSize: 10 } },
+    yAxis: { ...baseOption().yAxis, name: "押注貢獻 %", nameTextStyle: { color: MUTED }, axisLabel: { color: MUTED, formatter: v => v + "%" } },
+    series: [
+      {
+        name: "押注貢獻",
+        type: "bar", barMaxWidth: 50, color: COLORS[3],
+        data: spinTotals.map(s => +s.betPct.toFixed(2)),
+        label: { show: true, position: "top", formatter: p => p.value + "%", color: TEXT, fontSize: 11 },
+      },
+      {
+        name: "玩家佔比",
+        type: "line", yAxisIndex: 0, color: COLORS[2],
+        lineStyle: { width: 2 }, symbol: "circle", symbolSize: 7,
+        data: spinTotals.map(s => +s.playerPct.toFixed(2)),
+        tooltip: { valueFormatter: v => v + "% 玩家" },
+      },
+    ],
+    legend: { top: 0, textStyle: { color: MUTED } },
+    tooltip: { ...baseOption().tooltip, trigger: "axis" },
+  });
+}
+
 // ── Churn charts ──────────────────────────────────────────────────
 const EXIT_LABELS = {
   busted:     "輸光 (WinRatio < 0.1)",
@@ -713,14 +877,16 @@ async function loadAll() {
   document.getElementById("btn-refresh").disabled = true;
 
   try {
-    const [dauData, rtpData] = await Promise.all([
+    const [dauData, rtpData, segData] = await Promise.all([
       apiFetch("/api/dau" + buildQuery()),
       apiFetch("/api/rtp" + buildQuery()),
+      state.hasWide ? apiFetch(`/api/segment?game_id=${state.gameId}`) : Promise.resolve([]),
     ]);
 
     updateKPIs(dauData, rtpData);
     renderDau(dauData);
     renderRtp(rtpData);
+    renderSegment(segData);
 
     if (state.hasCohort) {
       const [cohortData, churnData] = await Promise.all([
@@ -760,8 +926,11 @@ async function init() {
 
   async function onGameChange() {
     const game = games.find(g => g.game_id === selGame.value);
-    state.gameId   = game.game_id;
+    state.gameId    = game.game_id;
     state.hasCohort = !!game.has_cohort;
+    state.hasWide   = !!game.has_wide;
+    const segBtn = document.getElementById("tab-seg-btn");
+    segBtn.style.display = game.has_wide ? "" : "none";
     state.dateFrom = game.date_from;
     state.dateTo   = game.date_to;
 

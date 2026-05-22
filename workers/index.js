@@ -108,6 +108,19 @@ async function handleRtp(env, params) {
   return json(results);
 }
 
+async function handleSegment(env, params) {
+  const gameId = params.get("game_id");
+  if (!gameId) return err("game_id required");
+
+  const { results } = await env.DB.prepare(
+    `SELECT day_seg, spin_seg, player_count, player_pct,
+            total_bet, bet_pct, avg_bet_per_player
+     FROM segment_cross WHERE game_id = ?
+     ORDER BY day_seg, spin_seg`
+  ).bind(gameId).all();
+  return json(results);
+}
+
 async function handleChurn(env, params) {
   const gameId = params.get("game_id");
   if (!gameId) return err("game_id required");
@@ -161,12 +174,13 @@ export default {
     }
 
     try {
-      if (path === "/api/games")   return await handleGames(env);
-      if (path === "/api/domains") return await handleDomains(env, params);
-      if (path === "/api/dau")     return await handleDau(env, params);
-      if (path === "/api/rtp")     return await handleRtp(env, params);
-      if (path === "/api/churn")   return await handleChurn(env, params);
-      if (path === "/api/cohort")  return await handleCohort(env, params);
+      if (path === "/api/games")    return await handleGames(env);
+      if (path === "/api/domains")  return await handleDomains(env, params);
+      if (path === "/api/dau")      return await handleDau(env, params);
+      if (path === "/api/rtp")      return await handleRtp(env, params);
+      if (path === "/api/segment")  return await handleSegment(env, params);
+      if (path === "/api/churn")    return await handleChurn(env, params);
+      if (path === "/api/cohort")   return await handleCohort(env, params);
 
       return err("Not found", 404);
     } catch (e) {

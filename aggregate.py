@@ -12,7 +12,7 @@ import sqlite3
 import os
 import logging
 import time
-import pandas as pd
+import pandas as pd  # noqa: F401  (used in aggregate_segment)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -113,6 +113,19 @@ def create_schema(conn: sqlite3.Connection) -> None:
             player_count  INTEGER,
             pct           REAL,
             PRIMARY KEY (game_id, exit_type)
+        );
+
+        -- Cross-segmentation: play_days × total_spins
+        CREATE TABLE segment_cross (
+            game_id       TEXT,
+            day_seg       TEXT,
+            spin_seg      TEXT,
+            player_count  INTEGER,
+            player_pct    REAL,
+            total_bet     REAL,
+            bet_pct       REAL,
+            avg_bet_per_player REAL,
+            PRIMARY KEY (game_id, day_seg, spin_seg)
         );
 
         -- Churn analysis: avg metrics in last 3 days before churn
@@ -301,6 +314,65 @@ def aggregate_cohort(game_id: str, db_path: str, conn: sqlite3.Connection) -> No
 
 
 # ---------------------------------------------------------------------------
+# Cross-segmentation: play_days × total_spins (wide DB)
+# ---------------------------------------------------------------------------
+
+DAY_BINS  = [0, 1, 3, 7, 14, 9999]
+DAY_LABELS = ["1天", "2-3天", "4-7天", "8-14天", "15天+"]
+SPIN_BINS  = [0, 100, 500, 2000, 10000, 99_999_999]
+SPIN_LABELS = ["1-100", "101-500", "501-2000", "2001-10000", "10000+"]
+
+def aggregate_segment(game_id: str, db_path: str, conn: sqlite3.Connection) -> None:
+    log.info(f"[{game_id}] Aggregating cross-segmentation ...")
+    t0 = time.time()
+
+    duck = duckdb.connect(db_path, read_only=True)
+    df = duck.execute("""
+        SELECT
+            PlayerID,
+            COUNT(DISTINCT Date)  AS play_days,
+            SUM(daily_spin_cnt)   AS total_spins,
+            SUM(daily_total_bet)  AS total_bet
+        FROM MechanismStats
+        WHERE GameID = ? AND Mode = 'Normal'
+        GROUP BY PlayerID
+    """, [game_id]).fetchdf()
+    duck.close()
+
+    total_bet     = df["total_bet"].sum()
+    total_players = len(df)
+
+    df["day_seg"]  = pd.cut(df["play_days"],   bins=DAY_BINS,  labels=DAY_LABELS,  right=True)
+    df["spin_seg"] = pd.cut(df["total_spins"],  bins=SPIN_BINS, labels=SPIN_LABELS, right=True)
+
+    grp = df.groupby(["day_seg", "spin_seg"], observed=True).agg(
+        player_count=("PlayerID", "count"),
+        total_bet=("total_bet", "sum"),
+    ).reset_index()
+
+    grp["player_pct"]        = (grp["player_count"] / total_players * 100).round(2)
+    grp["bet_pct"]           = (grp["total_bet"]    / total_bet     * 100).round(2)
+    grp["avg_bet_per_player"] = (grp["total_bet"]   / grp["player_count"]).round(0)
+
+    rows = []
+    for _, r in grp.iterrows():
+        rows.append((
+            game_id,
+            str(r["day_seg"]),
+            str(r["spin_seg"]),
+            int(r["player_count"]),
+            float(r["player_pct"]),
+            float(r["total_bet"]),
+            float(r["bet_pct"]),
+            float(r["avg_bet_per_player"]),
+        ))
+
+    conn.executemany("INSERT OR REPLACE INTO segment_cross VALUES (?,?,?,?,?,?,?,?)", rows)
+    conn.commit()
+    log.info(f"[{game_id}]   Segment cross rows: {len(rows)}, done in {time.time()-t0:.1f}s")
+
+
+# ---------------------------------------------------------------------------
 # Churn analysis (requires cohort DB with VariableX balance columns)
 # ---------------------------------------------------------------------------
 
@@ -401,13 +473,15 @@ def main() -> None:
     for game_id, sources in DB_FILES.items():
         if "wide" in sources:
             aggregate_wide(game_id, sources["wide"], conn)
+            aggregate_segment(game_id, sources["wide"], conn)
         if "cohort" in sources:
             aggregate_cohort(game_id, sources["cohort"], conn)
             aggregate_churn(game_id, sources["cohort"], conn)
 
     log.info("Aggregation complete — summary:")
     for table in ["games", "domains", "dau_daily", "rtp_daily",
-                  "cohort_matrix", "churn_overview", "churn_exit_type", "churn_last_days"]:
+                  "cohort_matrix", "segment_cross",
+                  "churn_overview", "churn_exit_type", "churn_last_days"]:
         n = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
         log.info(f"  {table:20s}: {n:,} rows")
 
