@@ -108,6 +108,23 @@ async function handleRtp(env, params) {
   return json(results);
 }
 
+async function handleChurn(env, params) {
+  const gameId = params.get("game_id");
+  if (!gameId) return err("game_id required");
+
+  const [ovRow, exitRows, dayRows] = await Promise.all([
+    env.DB.prepare("SELECT * FROM churn_overview WHERE game_id = ?").bind(gameId).first(),
+    env.DB.prepare("SELECT exit_type, label, player_count, pct FROM churn_exit_type WHERE game_id = ? ORDER BY pct DESC").bind(gameId).all(),
+    env.DB.prepare("SELECT day_rank, n_players, avg_win_ratio, avg_exit_balance, pct_losing FROM churn_last_days WHERE game_id = ? ORDER BY day_rank").bind(gameId).all(),
+  ]);
+
+  return json({
+    overview:   ovRow   ?? null,
+    exit_types: exitRows.results,
+    last_days:  dayRows.results,
+  });
+}
+
 async function handleCohort(env, params) {
   const gameId = params.get("game_id");
   if (!gameId) return err("game_id required");
@@ -148,6 +165,7 @@ export default {
       if (path === "/api/domains") return await handleDomains(env, params);
       if (path === "/api/dau")     return await handleDau(env, params);
       if (path === "/api/rtp")     return await handleRtp(env, params);
+      if (path === "/api/churn")   return await handleChurn(env, params);
       if (path === "/api/cohort")  return await handleCohort(env, params);
 
       return err("Not found", 404);

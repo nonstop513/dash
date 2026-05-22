@@ -177,6 +177,7 @@
     <button class="tab active" data-tab="dau">DAU 每日活躍</button>
     <button class="tab" data-tab="rtp">RTP 與投注</button>
     <button class="tab" id="tab-cohort-btn" data-tab="cohort">Cohort 留存</button>
+    <button class="tab" id="tab-churn-btn" data-tab="churn">流失分析</button>
   </div>
 
   <!-- DAU Tab -->
@@ -202,6 +203,48 @@
         <div class="card-title">每 Spin 平均投注額</div>
         <div id="chart-avg-bet" class="chart"></div>
       </div>
+    </div>
+  </div>
+
+  <!-- Churn Tab -->
+  <div id="panel-churn" class="tab-panel">
+    <!-- Summary cards -->
+    <div class="kpis" id="churn-kpis" style="margin-bottom:20px">
+      <div class="kpi">
+        <div class="kpi-label">流失玩家數</div>
+        <div class="kpi-value" id="ck-churned" style="color:#ef4444">—</div>
+        <div class="kpi-sub" id="ck-churn-rate">7 天未回</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">流失率</div>
+        <div class="kpi-value" id="ck-rate" style="color:#f59e0b">—</div>
+        <div class="kpi-sub">佔總玩家</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">幾乎輸光才走</div>
+        <div class="kpi-value" id="ck-busted" style="color:#ef4444">—</div>
+        <div class="kpi-sub">WinRatio &lt; 0.1</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">贏錢離場</div>
+        <div class="kpi-value" id="ck-profit" style="color:#10b981">—</div>
+        <div class="kpi-sub">WinRatio ≥ 1.0</div>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title">流失玩家最後一天離場類型</div>
+        <div id="chart-churn-exit" class="chart"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">流失前 3 天趨勢</div>
+        <div id="chart-churn-trend" class="chart"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">活躍 vs 流失 玩家比例</div>
+      <div id="chart-churn-overview" class="chart" style="height:260px"></div>
     </div>
   </div>
 
@@ -532,6 +575,138 @@ function renderCohort(data) {
   });
 }
 
+// ── Churn charts ──────────────────────────────────────────────────
+const EXIT_LABELS = {
+  busted:     "輸光 (WinRatio < 0.1)",
+  heavy_loss: "重損 (0.1 ~ 0.5)",
+  light_loss: "小輸 (0.5 ~ 1.0)",
+  profit:     "贏錢離場 (≥ 1.0)",
+};
+
+function renderChurn(data) {
+  const { overview, exit_types, last_days } = data;
+  if (!overview) {
+    document.getElementById("panel-churn").innerHTML =
+      `<div class="no-cohort">此遊戲無流失分析資料（需要 Cohort DB）</div>`;
+    return;
+  }
+
+  // KPI cards
+  document.getElementById("ck-churned").textContent = fmt(overview.churned_players);
+  document.getElementById("ck-rate").textContent    = fmtPct(overview.churn_rate);
+  document.getElementById("ck-churn-rate").textContent = `截止日 ${overview.churn_cutoff}`;
+
+  const busted = exit_types.find(e => e.exit_type === "busted");
+  const profit = exit_types.find(e => e.exit_type === "profit");
+  document.getElementById("ck-busted").textContent = busted ? busted.pct.toFixed(1) + "%" : "—";
+  document.getElementById("ck-profit").textContent = profit ? profit.pct.toFixed(1) + "%" : "—";
+
+  // --- Pie: exit type ---
+  const exitChart = makeChart("chart-churn-exit");
+  const exitColors = ["#ef4444", "#f97316", "#f59e0b", "#10b981"];
+  exitChart.setOption({
+    backgroundColor: SURFACE,
+    textStyle: { color: TEXT },
+    tooltip: {
+      trigger: "item",
+      backgroundColor: "#1e293b",
+      borderColor: BORDER,
+      textStyle: { color: TEXT },
+      formatter: p => `${p.name}<br/>${p.marker}<b>${p.value.toLocaleString()}</b> 人 (${p.percent.toFixed(1)}%)`,
+    },
+    legend: { orient: "vertical", right: 10, top: "center", textStyle: { color: MUTED } },
+    series: [{
+      type: "pie",
+      radius: ["45%", "72%"],
+      center: ["38%", "50%"],
+      data: exit_types.map((e, i) => ({
+        name: EXIT_LABELS[e.exit_type] ?? e.exit_type,
+        value: e.player_count,
+        itemStyle: { color: exitColors[i % exitColors.length] },
+      })),
+      label: {
+        formatter: p => `${p.percent.toFixed(1)}%`,
+        color: TEXT, fontSize: 12,
+      },
+      emphasis: { itemStyle: { shadowBlur: 10, shadowColor: "rgba(0,0,0,.5)" } },
+    }],
+  });
+
+  // --- Line + Bar: last 3 days trend ---
+  const trendChart = makeChart("chart-churn-trend");
+  const labels = last_days.map(d => `最後第 ${d.day_rank} 天`);
+  trendChart.setOption({
+    backgroundColor: SURFACE,
+    textStyle: { color: TEXT },
+    tooltip: { trigger: "axis", backgroundColor: "#1e293b", borderColor: BORDER, textStyle: { color: TEXT } },
+    legend: { top: 0, textStyle: { color: MUTED } },
+    grid: { left: 55, right: 65, top: 40, bottom: 40 },
+    xAxis: {
+      type: "category", data: labels,
+      axisLine: { lineStyle: { color: BORDER } },
+      axisLabel: { color: MUTED },
+    },
+    yAxis: [
+      {
+        name: "輸錢比例 %", nameTextStyle: { color: MUTED },
+        axisLabel: { color: MUTED, formatter: v => v + "%" },
+        axisLine: { show: false }, axisTick: { show: false },
+        splitLine: { lineStyle: { color: BORDER, type: "dashed" } },
+        min: 50, max: 100,
+      },
+      {
+        name: "平均離場金額", nameTextStyle: { color: MUTED },
+        position: "right",
+        axisLabel: { color: MUTED, formatter: v => fmt(v) },
+        axisLine: { show: false }, axisTick: { show: false },
+        splitLine: { show: false },
+      },
+    ],
+    series: [
+      {
+        name: "輸錢比例",
+        type: "line",
+        yAxisIndex: 0,
+        color: "#ef4444",
+        lineStyle: { width: 2.5 },
+        symbol: "circle", symbolSize: 8,
+        data: last_days.map(d => d.pct_losing),
+        tooltip: { valueFormatter: v => v.toFixed(1) + "%" },
+        label: { show: true, formatter: p => p.value.toFixed(1) + "%", color: TEXT, fontSize: 12 },
+      },
+      {
+        name: "平均離場金額",
+        type: "bar",
+        yAxisIndex: 1,
+        color: COLORS[0] + "88",
+        barMaxWidth: 40,
+        data: last_days.map(d => d.avg_exit_balance),
+        tooltip: { valueFormatter: v => fmt(v) },
+      },
+    ],
+  });
+
+  // --- Horizontal bar: active vs churned ---
+  const ovChart = makeChart("chart-churn-overview");
+  ovChart.setOption({
+    backgroundColor: SURFACE,
+    textStyle: { color: TEXT },
+    tooltip: { trigger: "axis", backgroundColor: "#1e293b", borderColor: BORDER, textStyle: { color: TEXT },
+      formatter: p => p.map(s => `${s.marker}${s.seriesName}: <b>${fmt(s.value)}</b>`).join("<br/>") },
+    grid: { left: 20, right: 20, top: 30, bottom: 30, containLabel: true },
+    xAxis: { type: "value", axisLabel: { color: MUTED, formatter: v => fmt(v) }, splitLine: { lineStyle: { color: BORDER, type: "dashed" } } },
+    yAxis: { type: "category", data: ["玩家"], axisLabel: { color: MUTED } },
+    series: [
+      { name: "流失玩家", type: "bar", stack: "total", color: "#ef4444cc",
+        data: [overview.churned_players],
+        label: { show: true, formatter: p => `流失 ${fmtPct(overview.churn_rate)}`, color: "#fff" } },
+      { name: "活躍玩家", type: "bar", stack: "total", color: "#10b981cc",
+        data: [overview.active_players],
+        label: { show: true, formatter: p => `活躍 ${fmtPct(1 - overview.churn_rate)}`, color: "#fff" } },
+    ],
+  });
+}
+
 // ── Load and render all charts ────────────────────────────────────
 async function loadAll() {
   if (!state.gameId) return;
@@ -548,12 +723,14 @@ async function loadAll() {
     renderRtp(rtpData);
 
     if (state.hasCohort) {
-      const cohortData = await apiFetch("/api/cohort" + buildQuery({ max_day: 30 }));
-      if (cohortData.length) {
-        renderCohort(cohortData);
-      } else {
-        document.getElementById("chart-cohort").innerHTML = `<div class="no-cohort">此篩選條件無 Cohort 資料</div>`;
-      }
+      const [cohortData, churnData] = await Promise.all([
+        apiFetch("/api/cohort" + buildQuery({ max_day: 30 })),
+        apiFetch(`/api/churn?game_id=${state.gameId}`),
+      ]);
+      if (cohortData.length) renderCohort(cohortData);
+      else document.getElementById("chart-cohort").innerHTML =
+        `<div class="no-cohort">此篩選條件無 Cohort 資料</div>`;
+      renderChurn(churnData);
     }
   } catch (err) {
     console.error(err);
@@ -591,10 +768,13 @@ async function init() {
     document.getElementById("date-from").value = game.date_from;
     document.getElementById("date-to").value   = game.date_to;
 
-    // Toggle cohort tab
+    // Toggle cohort + churn tabs (both need cohort data)
     const cohortBtn = document.getElementById("tab-cohort-btn");
+    const churnBtn  = document.getElementById("tab-churn-btn");
     cohortBtn.style.display = game.has_cohort ? "" : "none";
-    if (!game.has_cohort && document.querySelector(".tab.active[data-tab='cohort']")) {
+    churnBtn.style.display  = game.has_cohort ? "" : "none";
+    const activeTab = document.querySelector(".tab.active");
+    if (!game.has_cohort && (activeTab?.dataset.tab === "cohort" || activeTab?.dataset.tab === "churn")) {
       activateTab("dau");
     }
 

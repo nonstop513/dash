@@ -12,6 +12,7 @@ import sqlite3
 import os
 import logging
 import time
+import pandas as pd
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -40,6 +41,9 @@ ANALYTICS_DB = os.path.join(BASE_DIR, "analytics.db")
 
 def create_schema(conn: sqlite3.Connection) -> None:
     conn.executescript("""
+        DROP TABLE IF EXISTS churn_last_days;
+        DROP TABLE IF EXISTS churn_exit_type;
+        DROP TABLE IF EXISTS churn_overview;
         DROP TABLE IF EXISTS cohort_matrix;
         DROP TABLE IF EXISTS rtp_daily;
         DROP TABLE IF EXISTS dau_daily;
@@ -89,6 +93,37 @@ def create_schema(conn: sqlite3.Connection) -> None:
             cohort_size    INTEGER,
             retention_rate REAL,
             PRIMARY KEY (game_id, cohort_day, day_index)
+        );
+
+        -- Churn analysis: overall player counts
+        CREATE TABLE churn_overview (
+            game_id         TEXT PRIMARY KEY,
+            total_players   INTEGER,
+            churned_players INTEGER,
+            active_players  INTEGER,
+            churn_rate      REAL,
+            churn_cutoff    TEXT
+        );
+
+        -- Churn analysis: exit type distribution (last-day WinRatio buckets)
+        CREATE TABLE churn_exit_type (
+            game_id       TEXT,
+            exit_type     TEXT,
+            label         TEXT,
+            player_count  INTEGER,
+            pct           REAL,
+            PRIMARY KEY (game_id, exit_type)
+        );
+
+        -- Churn analysis: avg metrics in last 3 days before churn
+        CREATE TABLE churn_last_days (
+            game_id          TEXT,
+            day_rank         INTEGER,
+            n_players        INTEGER,
+            avg_win_ratio    REAL,
+            avg_exit_balance REAL,
+            pct_losing       REAL,
+            PRIMARY KEY (game_id, day_rank)
         );
     """)
     conn.commit()
@@ -266,6 +301,95 @@ def aggregate_cohort(game_id: str, db_path: str, conn: sqlite3.Connection) -> No
 
 
 # ---------------------------------------------------------------------------
+# Churn analysis (requires cohort DB with VariableX balance columns)
+# ---------------------------------------------------------------------------
+
+def aggregate_churn(game_id: str, db_path: str, conn: sqlite3.Connection) -> None:
+    log.info(f"[{game_id}] Aggregating churn analysis ...")
+    t0 = time.time()
+
+    duck = duckdb.connect(db_path, read_only=True)
+    max_date     = duck.execute("SELECT MAX(Date) FROM VariableX").fetchone()[0]
+    cutoff       = (pd.Timestamp(max_date) - pd.Timedelta(days=7)).date()
+    cutoff_str   = str(cutoff)
+
+    # --- Overview: churned vs active ---
+    ov = duck.execute(f"""
+        WITH last_dates AS (
+            SELECT PlayerID, MAX(Date) AS last_date
+            FROM VariableX GROUP BY PlayerID
+        )
+        SELECT
+            COUNT(*)                                                    AS total,
+            SUM(CASE WHEN last_date <  '{cutoff_str}' THEN 1 ELSE 0 END) AS churned,
+            SUM(CASE WHEN last_date >= '{cutoff_str}' THEN 1 ELSE 0 END) AS active
+        FROM last_dates
+    """).fetchone()
+    total, churned, active = ov
+    conn.execute(
+        "INSERT OR REPLACE INTO churn_overview VALUES (?,?,?,?,?,?)",
+        [game_id, int(total), int(churned), int(active), churned/total, cutoff_str]
+    )
+    log.info(f"[{game_id}]   Churned {churned:,} / {total:,} ({churned/total*100:.1f}%)")
+
+    # --- Exit type: WinRatio buckets on last day ---
+    ex = duck.execute(f"""
+        SELECT
+            SUM(CASE WHEN WinRatio <  0.1                         THEN 1 ELSE 0 END) AS busted,
+            SUM(CASE WHEN WinRatio >= 0.1 AND WinRatio <  0.5    THEN 1 ELSE 0 END) AS heavy_loss,
+            SUM(CASE WHEN WinRatio >= 0.5 AND WinRatio <  1.0    THEN 1 ELSE 0 END) AS light_loss,
+            SUM(CASE WHEN WinRatio >= 1.0                         THEN 1 ELSE 0 END) AS profit,
+            COUNT(*) AS n
+        FROM VariableX vx
+        JOIN (
+            SELECT PlayerID, MAX(Date) AS last_date
+            FROM VariableX WHERE Date < '{cutoff_str}'
+            GROUP BY PlayerID
+        ) t ON vx.PlayerID = t.PlayerID AND vx.Date = t.last_date
+    """).fetchone()
+    busted, heavy, light, profit, n = ex
+    types = [
+        ("busted",     "輸光 (WinRatio < 0.1)",  busted, busted/n*100),
+        ("heavy_loss", "重損 (0.1 ~ 0.5)",       heavy,  heavy/n*100),
+        ("light_loss", "小輸 (0.5 ~ 1.0)",       light,  light/n*100),
+        ("profit",     "贏錢離場 (≥ 1.0)",       profit, profit/n*100),
+    ]
+    conn.executemany(
+        "INSERT OR REPLACE INTO churn_exit_type VALUES (?,?,?,?,?)",
+        [(game_id, t[0], t[1], int(t[2]), round(t[3], 2)) for t in types]
+    )
+
+    # --- Last 3 days trend ---
+    trend = duck.execute(f"""
+        WITH ranked AS (
+            SELECT PlayerID, Date, WinRatio, LastAfterBalance,
+                   RANK() OVER (PARTITION BY PlayerID ORDER BY Date DESC) AS day_rank
+            FROM VariableX WHERE Date < '{cutoff_str}'
+        )
+        SELECT
+            day_rank,
+            COUNT(*)                                                            AS n_players,
+            ROUND(AVG(WinRatio), 4)                                             AS avg_win_ratio,
+            ROUND(AVG(LastAfterBalance), 2)                                     AS avg_exit_balance,
+            ROUND(SUM(CASE WHEN WinRatio < 1 THEN 1.0 ELSE 0.0 END)
+                  / COUNT(*) * 100, 2)                                          AS pct_losing
+        FROM ranked WHERE day_rank <= 3
+        GROUP BY day_rank ORDER BY day_rank
+    """).fetchdf()
+
+    conn.executemany(
+        "INSERT OR REPLACE INTO churn_last_days VALUES (?,?,?,?,?,?)",
+        [(game_id, int(r.day_rank), int(r.n_players),
+          float(r.avg_win_ratio), float(r.avg_exit_balance), float(r.pct_losing))
+         for r in trend.itertuples()]
+    )
+
+    duck.close()
+    conn.commit()
+    log.info(f"[{game_id}]   Churn analysis done in {time.time()-t0:.1f}s")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -279,9 +403,11 @@ def main() -> None:
             aggregate_wide(game_id, sources["wide"], conn)
         if "cohort" in sources:
             aggregate_cohort(game_id, sources["cohort"], conn)
+            aggregate_churn(game_id, sources["cohort"], conn)
 
     log.info("Aggregation complete — summary:")
-    for table in ["games", "domains", "dau_daily", "rtp_daily", "cohort_matrix"]:
+    for table in ["games", "domains", "dau_daily", "rtp_daily",
+                  "cohort_matrix", "churn_overview", "churn_exit_type", "churn_last_days"]:
         n = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
         log.info(f"  {table:20s}: {n:,} rows")
 

@@ -140,6 +140,36 @@ def get_rtp(
     return [dict(r) for r in rows]
 
 
+@app.get("/api/churn")
+def get_churn(game_id: str = Query(...)):
+    """
+    Return full churn analysis for a game:
+    overview, exit_type distribution, and last-3-days trend.
+    Only available for games with cohort data (has_cohort=1).
+    """
+    conn = get_db()
+    overview = conn.execute(
+        "SELECT * FROM churn_overview WHERE game_id=?", [game_id]
+    ).fetchone()
+    exit_types = conn.execute(
+        "SELECT exit_type, label, player_count, pct FROM churn_exit_type WHERE game_id=? ORDER BY pct DESC",
+        [game_id]
+    ).fetchall()
+    last_days = conn.execute(
+        "SELECT day_rank, n_players, avg_win_ratio, avg_exit_balance, pct_losing FROM churn_last_days WHERE game_id=? ORDER BY day_rank",
+        [game_id]
+    ).fetchall()
+    conn.close()
+
+    if not overview:
+        return {"overview": None, "exit_types": [], "last_days": []}
+    return {
+        "overview":   dict(overview),
+        "exit_types": [dict(r) for r in exit_types],
+        "last_days":  [dict(r) for r in last_days],
+    }
+
+
 @app.get("/api/cohort")
 def get_cohort(
     game_id: str = Query(...),
