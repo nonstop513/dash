@@ -21,7 +21,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 DB_FILES = {
     "101003": {
-        "wide":   os.path.join(BASE_DIR, "101003_20251207_20260207(wide).duckdb"),
+        # wide DB excluded: use cohort DB only (VariableX columns differ from MechanismStats)
         "cohort": os.path.join(BASE_DIR, "101003_20260108_20260318.duckdb"),
     },
     "101007": {
