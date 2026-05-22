@@ -602,11 +602,7 @@ const DAY_LABELS  = ["1天", "2-3天", "4-7天", "8-14天", "15天+"];
 const SPIN_LABELS = ["1-100", "101-500", "501-2000", "2001-10000", "10000+"];
 
 function renderSegment(data) {
-  if (!data.length) {
-    document.getElementById("panel-seg").innerHTML =
-      `<div class="no-cohort">此遊戲無分群資料（需要 Wide DB）</div>`;
-    return;
-  }
+  if (!data.length) return;  // Tab 已隱藏，直接略過即可
 
   // Build lookup: [day][spin] → cell
   const lookup = {};
@@ -886,7 +882,7 @@ async function loadAll() {
     updateKPIs(dauData, rtpData);
     renderDau(dauData);
     renderRtp(rtpData);
-    renderSegment(segData);
+    if (state.hasWide) renderSegment(segData);
 
     if (state.hasCohort) {
       const [cohortData, churnData] = await Promise.all([
@@ -894,8 +890,6 @@ async function loadAll() {
         apiFetch(`/api/churn?game_id=${state.gameId}`),
       ]);
       if (cohortData.length) renderCohort(cohortData);
-      else document.getElementById("chart-cohort").innerHTML =
-        `<div class="no-cohort">此篩選條件無 Cohort 資料</div>`;
       renderChurn(churnData);
     }
   } catch (err) {
