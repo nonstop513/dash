@@ -138,6 +138,31 @@ async function handleChurn(env, params) {
   });
 }
 
+async function handleFirstDay(env, params) {
+  const gameId = params.get("game_id");
+  if (!gameId) return err("game_id required");
+
+  const [ovRow, spinRows, rtpRows] = await Promise.all([
+    env.DB.prepare("SELECT * FROM fdr_overview WHERE game_id = ?").bind(gameId).first(),
+    env.DB.prepare(
+      `SELECT seg_label, retained, not_retained, retention_pct, avg_rtp_ret, avg_rtp_not
+       FROM fdr_segments WHERE game_id = ? AND seg_type = 'spin'
+       ORDER BY seg_order`
+    ).bind(gameId).all(),
+    env.DB.prepare(
+      `SELECT seg_label, retained, not_retained, retention_pct
+       FROM fdr_segments WHERE game_id = ? AND seg_type = 'rtp'
+       ORDER BY seg_order`
+    ).bind(gameId).all(),
+  ]);
+
+  return json({
+    overview:       ovRow ?? null,
+    spin_segments:  spinRows.results,
+    rtp_segments:   rtpRows.results,
+  });
+}
+
 async function handleCohort(env, params) {
   const gameId = params.get("game_id");
   if (!gameId) return err("game_id required");
@@ -178,9 +203,10 @@ export default {
       if (path === "/api/domains")  return await handleDomains(env, params);
       if (path === "/api/dau")      return await handleDau(env, params);
       if (path === "/api/rtp")      return await handleRtp(env, params);
-      if (path === "/api/segment")  return await handleSegment(env, params);
-      if (path === "/api/churn")    return await handleChurn(env, params);
-      if (path === "/api/cohort")   return await handleCohort(env, params);
+      if (path === "/api/segment")    return await handleSegment(env, params);
+      if (path === "/api/churn")      return await handleChurn(env, params);
+      if (path === "/api/cohort")     return await handleCohort(env, params);
+      if (path === "/api/first_day")  return await handleFirstDay(env, params);
 
       return err("Not found", 404);
     } catch (e) {

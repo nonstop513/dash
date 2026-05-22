@@ -41,10 +41,13 @@ ANALYTICS_DB = os.path.join(BASE_DIR, "analytics.db")
 
 def create_schema(conn: sqlite3.Connection) -> None:
     conn.executescript("""
+        DROP TABLE IF EXISTS fdr_segments;
+        DROP TABLE IF EXISTS fdr_overview;
         DROP TABLE IF EXISTS churn_last_days;
         DROP TABLE IF EXISTS churn_exit_type;
         DROP TABLE IF EXISTS churn_overview;
         DROP TABLE IF EXISTS cohort_matrix;
+        DROP TABLE IF EXISTS segment_cross;
         DROP TABLE IF EXISTS rtp_daily;
         DROP TABLE IF EXISTS dau_daily;
         DROP TABLE IF EXISTS domains;
@@ -137,6 +140,35 @@ def create_schema(conn: sqlite3.Connection) -> None:
             avg_exit_balance REAL,
             pct_losing       REAL,
             PRIMARY KEY (game_id, day_rank)
+        );
+
+        -- First-day-in-7-window retention: overall summary
+        CREATE TABLE fdr_overview (
+            game_id        TEXT PRIMARY KEY,
+            total_records  INTEGER,
+            retained       INTEGER,
+            not_retained   INTEGER,
+            retention_pct  REAL,
+            avg_spin_ret   REAL,
+            avg_spin_not   REAL,
+            med_spin_ret   REAL,
+            med_spin_not   REAL,
+            avg_rtp_ret    REAL,
+            avg_rtp_not    REAL
+        );
+
+        -- First-day-in-7-window retention: per segment breakdown
+        CREATE TABLE fdr_segments (
+            game_id        TEXT,
+            seg_type       TEXT,
+            seg_order      INTEGER,
+            seg_label      TEXT,
+            retained       INTEGER,
+            not_retained   INTEGER,
+            retention_pct  REAL,
+            avg_rtp_ret    REAL,
+            avg_rtp_not    REAL,
+            PRIMARY KEY (game_id, seg_type, seg_label)
         );
     """)
     conn.commit()
@@ -462,6 +494,140 @@ def aggregate_churn(game_id: str, db_path: str, conn: sqlite3.Connection) -> Non
 
 
 # ---------------------------------------------------------------------------
+# First-Day-in-7-Window Retention (wide DB)
+# ---------------------------------------------------------------------------
+
+FDR_SPIN_BINS   = [0, 100, 500, 2000, 10_000, 99_999_999]
+FDR_SPIN_LABELS = ["1-100", "101-500", "501-2000", "2001-10000", "10000+"]
+FDR_RTP_BINS    = [-0.001, 0.5, 0.8, 0.9, 0.95, 1.0, 1.1, 1.25, 9999]
+FDR_RTP_LABELS  = ["<50%", "50-80%", "80-90%", "90-95%", "95-100%",
+                   "100-110%", "110-125%", ">125%"]
+
+def aggregate_fdr(game_id: str, db_path: str, conn: sqlite3.Connection) -> None:
+    log.info(f"[{game_id}] Aggregating first-day-in-7-window retention ...")
+    t0 = time.time()
+
+    duck = duckdb.connect(db_path, read_only=True)
+
+    df = duck.execute("""
+        WITH base AS (
+            SELECT
+                PlayerID,
+                CAST(Date AS DATE)      AS play_date,
+                SUM(daily_spin_cnt)     AS daily_spin_cnt,
+                AVG(daily_rtp)          AS daily_rtp,
+                SUM(daily_total_bet)    AS daily_total_bet
+            FROM MechanismStats
+            WHERE GameID = ? AND Mode = 'Normal'
+            GROUP BY PlayerID, CAST(Date AS DATE)
+        ),
+        with_prev AS (
+            SELECT *,
+                   LAG(play_date) OVER (PARTITION BY PlayerID ORDER BY play_date) AS prev_date
+            FROM base
+        ),
+        first_in_window AS (
+            -- prev_date IS NULL (first ever login) OR gap > 6 days
+            SELECT * FROM with_prev
+            WHERE prev_date IS NULL OR (play_date - prev_date) > 6
+        )
+        SELECT
+            fiw.daily_spin_cnt,
+            fiw.daily_rtp,
+            fiw.daily_total_bet,
+            CASE WHEN EXISTS (
+                SELECT 1 FROM base b
+                WHERE b.PlayerID  = fiw.PlayerID
+                  AND b.play_date = fiw.play_date + 1
+            ) THEN 1 ELSE 0 END AS returned_next_day
+        FROM first_in_window fiw
+    """, [game_id]).fetchdf()
+
+    duck.close()
+
+    # ── Overall overview ─────────────────────────────────────────────────────
+    ret = df[df["returned_next_day"] == 1]
+    nrt = df[df["returned_next_day"] == 0]
+    total = len(df)
+
+    conn.execute(
+        "INSERT OR REPLACE INTO fdr_overview VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        [
+            game_id,
+            int(total),
+            int(len(ret)),
+            int(len(nrt)),
+            round(len(ret) / total * 100, 2),
+            round(float(ret["daily_spin_cnt"].mean()), 2),
+            round(float(nrt["daily_spin_cnt"].mean()), 2),
+            round(float(ret["daily_spin_cnt"].median()), 2),
+            round(float(nrt["daily_spin_cnt"].median()), 2),
+            round(float(ret["daily_rtp"].mean()), 4),
+            round(float(nrt["daily_rtp"].mean()), 4),
+        ]
+    )
+    log.info(f"[{game_id}]   FDR overview: total={total:,}, "
+             f"retained={len(ret):,} ({len(ret)/total*100:.1f}%)")
+
+    # ── Spin segmentation ────────────────────────────────────────────────────
+    df["spin_seg"] = pd.cut(df["daily_spin_cnt"], bins=FDR_SPIN_BINS,
+                            labels=FDR_SPIN_LABELS, right=True)
+    spin_grp = (
+        df.groupby(["spin_seg", "returned_next_day"], observed=True)
+          .agg(count=("daily_spin_cnt", "count"), avg_rtp=("daily_rtp", "mean"))
+          .reset_index()
+    )
+    spin_wide = spin_grp.pivot(index="spin_seg", columns="returned_next_day",
+                                values="count").fillna(0)
+    spin_rtp  = spin_grp.pivot(index="spin_seg", columns="returned_next_day",
+                                values="avg_rtp")
+
+    for order, label in enumerate(FDR_SPIN_LABELS):
+        if label not in spin_wide.index:
+            continue
+        r_cnt = int(spin_wide.loc[label, 1]) if 1 in spin_wide.columns else 0
+        n_cnt = int(spin_wide.loc[label, 0]) if 0 in spin_wide.columns else 0
+        tot   = r_cnt + n_cnt
+        if tot == 0:
+            continue
+        r_rtp = round(float(spin_rtp.loc[label, 1]), 4) if (1 in spin_rtp.columns and label in spin_rtp.index and not pd.isna(spin_rtp.loc[label, 1])) else None
+        n_rtp = round(float(spin_rtp.loc[label, 0]), 4) if (0 in spin_rtp.columns and label in spin_rtp.index and not pd.isna(spin_rtp.loc[label, 0])) else None
+        conn.execute(
+            "INSERT OR REPLACE INTO fdr_segments VALUES (?,?,?,?,?,?,?,?,?)",
+            [game_id, "spin", order, label, r_cnt, n_cnt,
+             round(r_cnt / tot * 100, 2), r_rtp, n_rtp]
+        )
+
+    # ── RTP segmentation ─────────────────────────────────────────────────────
+    df["rtp_seg"] = pd.cut(df["daily_rtp"], bins=FDR_RTP_BINS,
+                           labels=FDR_RTP_LABELS, right=True)
+    rtp_grp = (
+        df.groupby(["rtp_seg", "returned_next_day"], observed=True)
+          .agg(count=("daily_spin_cnt", "count"))
+          .reset_index()
+    )
+    rtp_wide = rtp_grp.pivot(index="rtp_seg", columns="returned_next_day",
+                              values="count").fillna(0)
+
+    for order, label in enumerate(FDR_RTP_LABELS):
+        if label not in rtp_wide.index:
+            continue
+        r_cnt = int(rtp_wide.loc[label, 1]) if 1 in rtp_wide.columns else 0
+        n_cnt = int(rtp_wide.loc[label, 0]) if 0 in rtp_wide.columns else 0
+        tot   = r_cnt + n_cnt
+        if tot == 0:
+            continue
+        conn.execute(
+            "INSERT OR REPLACE INTO fdr_segments VALUES (?,?,?,?,?,?,?,?,?)",
+            [game_id, "rtp", order, label, r_cnt, n_cnt,
+             round(r_cnt / tot * 100, 2), None, None]
+        )
+
+    conn.commit()
+    log.info(f"[{game_id}]   FDR segments done in {time.time()-t0:.1f}s")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -474,6 +640,7 @@ def main() -> None:
         if "wide" in sources:
             aggregate_wide(game_id, sources["wide"], conn)
             aggregate_segment(game_id, sources["wide"], conn)
+            aggregate_fdr(game_id, sources["wide"], conn)
         if "cohort" in sources:
             aggregate_cohort(game_id, sources["cohort"], conn)
             aggregate_churn(game_id, sources["cohort"], conn)
@@ -481,7 +648,8 @@ def main() -> None:
     log.info("Aggregation complete — summary:")
     for table in ["games", "domains", "dau_daily", "rtp_daily",
                   "cohort_matrix", "segment_cross",
-                  "churn_overview", "churn_exit_type", "churn_last_days"]:
+                  "churn_overview", "churn_exit_type", "churn_last_days",
+                  "fdr_overview", "fdr_segments"]:
         n = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
         log.info(f"  {table:20s}: {n:,} rows")
 

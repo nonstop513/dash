@@ -178,7 +178,8 @@
     <button class="tab" data-tab="rtp">RTP 與投注</button>
     <button class="tab" id="tab-cohort-btn" data-tab="cohort">Cohort 留存</button>
     <button class="tab" id="tab-churn-btn" data-tab="churn">流失分析</button>
-    <button class="tab" id="tab-seg-btn" data-tab="seg">分群貢獻</button>
+    <button class="tab" id="tab-seg-btn"  data-tab="seg">分群貢獻</button>
+    <button class="tab" id="tab-fdr-btn"  data-tab="fdr">首日留存</button>
   </div>
 
   <!-- DAU Tab -->
@@ -267,6 +268,54 @@
     <div class="card">
       <div class="card-title">活躍 vs 流失 玩家比例</div>
       <div id="chart-churn-overview" class="chart" style="height:260px"></div>
+    </div>
+  </div>
+
+  <!-- First-Day Retention Tab -->
+  <div id="panel-fdr" class="tab-panel">
+    <!-- KPI row -->
+    <div class="kpis" id="fdr-kpis" style="margin-bottom:20px">
+      <div class="kpi">
+        <div class="kpi-label">符合條件筆數</div>
+        <div class="kpi-value" id="fk-total">—</div>
+        <div class="kpi-sub">7天內只有這天登入</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">隔日留存率</div>
+        <div class="kpi-value" id="fk-rate" style="color:#10b981">—</div>
+        <div class="kpi-sub">D+1 有回來</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">留下群均轉數</div>
+        <div class="kpi-value" id="fk-spin-ret" style="color:#3b82f6">—</div>
+        <div class="kpi-sub">隔日有回來者</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">未留下群均轉數</div>
+        <div class="kpi-value" id="fk-spin-not" style="color:#f59e0b">—</div>
+        <div class="kpi-sub">隔日沒回來者</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">RTP 差距</div>
+        <div class="kpi-value" id="fk-rtp-gap" style="color:#06b6d4">—</div>
+        <div class="kpi-sub">留下 vs 未留下</div>
+      </div>
+    </div>
+    <!-- Spin chart -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-title">
+        轉數分群 × 隔日留存率
+        <span style="font-size:12px;color:var(--muted);font-weight:400;margin-left:8px">柱：人次數；折線：留存率 %</span>
+      </div>
+      <div id="chart-fdr-spin" class="chart chart-lg"></div>
+    </div>
+    <!-- RTP chart -->
+    <div class="card">
+      <div class="card-title">
+        當日 RTP 分布 × 隔日留存率
+        <span style="font-size:12px;color:var(--muted);font-weight:400;margin-left:8px">柱：人次數；折線：留存率 %</span>
+      </div>
+      <div id="chart-fdr-rtp" class="chart chart-lg"></div>
     </div>
   </div>
 
@@ -867,22 +916,103 @@ function renderChurn(data) {
   });
 }
 
+// ── First-Day-in-7-window Retention ──────────────────────────────
+function renderFdr(data) {
+  const { overview, spin_segments, rtp_segments } = data;
+  if (!overview) return;
+
+  // KPIs
+  document.getElementById("fk-total").textContent    = fmt(overview.total_records);
+  document.getElementById("fk-rate").textContent     = fmtPct(overview.retention_pct / 100);
+  document.getElementById("fk-spin-ret").textContent = Math.round(overview.avg_spin_ret).toLocaleString();
+  document.getElementById("fk-spin-not").textContent = Math.round(overview.avg_spin_not).toLocaleString();
+  const rtpGap = ((overview.avg_rtp_ret - overview.avg_rtp_not) * 100).toFixed(2);
+  document.getElementById("fk-rtp-gap").textContent  = (rtpGap > 0 ? "+" : "") + rtpGap + "%";
+
+  // Helper: dual-axis bar+line chart
+  function dualChart(id, labels, retainedData, notRetainedData, rateData) {
+    const c = makeChart(id);
+    c.setOption({
+      backgroundColor: SURFACE,
+      textStyle: { color: TEXT },
+      tooltip: {
+        trigger: "axis", backgroundColor: "#1e293b", borderColor: BORDER, textStyle: { color: TEXT },
+        formatter: params => {
+          const label = params[0]?.axisValue ?? "";
+          return `<b>${label}</b><br/>` + params.map(p =>
+            `${p.marker}${p.seriesName}: <b>${p.seriesIndex < 2 ? fmt(p.value) : p.value.toFixed(1) + "%"}</b>`
+          ).join("<br/>");
+        },
+      },
+      legend: { top: 4, textStyle: { color: MUTED } },
+      grid: { left: 60, right: 60, top: 44, bottom: 60, containLabel: true },
+      xAxis: {
+        type: "category", data: labels,
+        axisLine: { lineStyle: { color: BORDER } },
+        axisLabel: { color: MUTED, rotate: 20, fontSize: 11 },
+        splitLine: { show: false },
+      },
+      yAxis: [
+        { name: "人次", nameTextStyle: { color: MUTED }, axisLabel: { color: MUTED, formatter: v => fmt(v) },
+          splitLine: { lineStyle: { color: BORDER, type: "dashed" } }, axisLine: { show: false } },
+        { name: "留存率 %", nameTextStyle: { color: MUTED }, min: 40, max: 100,
+          axisLabel: { color: MUTED, formatter: v => v + "%" },
+          splitLine: { show: false }, axisLine: { show: false } },
+      ],
+      series: [
+        { name: "留下(D+1)", type: "bar", barMaxWidth: 40, color: COLORS[2] + "cc", data: retainedData,
+          tooltip: { valueFormatter: v => fmt(v) } },
+        { name: "未留下",    type: "bar", barMaxWidth: 40, color: COLORS[5] + "cc", data: notRetainedData,
+          tooltip: { valueFormatter: v => fmt(v) } },
+        { name: "留存率", type: "line", yAxisIndex: 1, smooth: true,
+          color: COLORS[3], lineStyle: { width: 2.5 },
+          symbol: "circle", symbolSize: 7,
+          label: { show: true, position: "top", color: COLORS[3], fontSize: 11,
+                   formatter: p => p.value.toFixed(1) + "%" },
+          data: rateData },
+      ],
+    });
+  }
+
+  // Spin chart
+  dualChart(
+    "chart-fdr-spin",
+    spin_segments.map(s => s.seg_label),
+    spin_segments.map(s => s.retained),
+    spin_segments.map(s => s.not_retained),
+    spin_segments.map(s => s.retention_pct),
+  );
+
+  // RTP chart
+  dualChart(
+    "chart-fdr-rtp",
+    rtp_segments.map(s => s.seg_label),
+    rtp_segments.map(s => s.retained),
+    rtp_segments.map(s => s.not_retained),
+    rtp_segments.map(s => s.retention_pct),
+  );
+}
+
 // ── Load and render all charts ────────────────────────────────────
 async function loadAll() {
   if (!state.gameId) return;
   document.getElementById("btn-refresh").disabled = true;
 
   try {
-    const [dauData, rtpData, segData] = await Promise.all([
+    const [dauData, rtpData, segData, fdrData] = await Promise.all([
       apiFetch("/api/dau" + buildQuery()),
       apiFetch("/api/rtp" + buildQuery()),
-      state.hasWide ? apiFetch(`/api/segment?game_id=${state.gameId}`) : Promise.resolve([]),
+      state.hasWide ? apiFetch(`/api/segment?game_id=${state.gameId}`)   : Promise.resolve([]),
+      state.hasWide ? apiFetch(`/api/first_day?game_id=${state.gameId}`) : Promise.resolve(null),
     ]);
 
     updateKPIs(dauData, rtpData);
     renderDau(dauData);
     renderRtp(rtpData);
-    if (state.hasWide) renderSegment(segData);
+    if (state.hasWide) {
+      renderSegment(segData);
+      if (fdrData) renderFdr(fdrData);
+    }
 
     if (state.hasCohort) {
       const [cohortData, churnData] = await Promise.all([
@@ -924,7 +1054,9 @@ async function init() {
     state.hasCohort = !!game.has_cohort;
     state.hasWide   = !!game.has_wide;
     const segBtn = document.getElementById("tab-seg-btn");
+    const fdrBtn = document.getElementById("tab-fdr-btn");
     segBtn.style.display = game.has_wide ? "" : "none";
+    fdrBtn.style.display = game.has_wide ? "" : "none";
     state.dateFrom = game.date_from;
     state.dateTo   = game.date_to;
 
@@ -938,6 +1070,9 @@ async function init() {
     churnBtn.style.display  = game.has_cohort ? "" : "none";
     const activeTab = document.querySelector(".tab.active");
     if (!game.has_cohort && (activeTab?.dataset.tab === "cohort" || activeTab?.dataset.tab === "churn")) {
+      activateTab("dau");
+    }
+    if (!game.has_wide && (activeTab?.dataset.tab === "seg" || activeTab?.dataset.tab === "fdr")) {
       activateTab("dau");
     }
 

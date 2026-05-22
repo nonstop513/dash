@@ -189,6 +189,38 @@ def get_churn(game_id: str = Query(...)):
     }
 
 
+@app.get("/api/first_day")
+def get_first_day(game_id: str = Query(...)):
+    """
+    Return first-day-in-7-window retention analysis.
+    overview: overall summary; spin_segments / rtp_segments: per-bucket breakdown.
+    Only available for games with wide data (has_wide=1).
+    """
+    conn = get_db()
+    overview = conn.execute(
+        "SELECT * FROM fdr_overview WHERE game_id=?", [game_id]
+    ).fetchone()
+    spin_segs = conn.execute(
+        """SELECT seg_label, retained, not_retained, retention_pct, avg_rtp_ret, avg_rtp_not
+           FROM fdr_segments WHERE game_id=? AND seg_type='spin'
+           ORDER BY seg_order""",
+        [game_id]
+    ).fetchall()
+    rtp_segs = conn.execute(
+        """SELECT seg_label, retained, not_retained, retention_pct
+           FROM fdr_segments WHERE game_id=? AND seg_type='rtp'
+           ORDER BY seg_order""",
+        [game_id]
+    ).fetchall()
+    conn.close()
+
+    return {
+        "overview":       dict(overview) if overview else None,
+        "spin_segments":  [dict(r) for r in spin_segs],
+        "rtp_segments":   [dict(r) for r in rtp_segs],
+    }
+
+
 @app.get("/api/cohort")
 def get_cohort(
     game_id: str = Query(...),
