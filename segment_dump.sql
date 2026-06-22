@@ -1,0 +1,62 @@
+DROP TABLE IF EXISTS segment_cross;
+CREATE TABLE segment_cross (
+            game_id       TEXT,
+            day_seg       TEXT,
+            spin_seg      TEXT,
+            player_count  INTEGER,
+            player_pct    REAL,
+            total_bet     REAL,
+            bet_pct       REAL,
+            avg_bet_per_player REAL,
+            PRIMARY KEY (game_id, day_seg, spin_seg)
+        );
+
+INSERT INTO segment_cross VALUES ('101003', '1天', '1-100', 61411, 17.33, 8192645.0, 0.6, 133.0);
+INSERT INTO segment_cross VALUES ('101003', '1天', '101-500', 37041, 10.45, 22615479.0, 1.65, 611.0);
+INSERT INTO segment_cross VALUES ('101003', '1天', '501-2000', 5171, 1.46, 13732618.0, 1.0, 2656.0);
+INSERT INTO segment_cross VALUES ('101003', '1天', '2001-10000', 122, 0.03, 1491170.0, 0.11, 12223.0);
+INSERT INTO segment_cross VALUES ('101003', '2-3天', '1-100', 51192, 14.45, 7956559.0, 0.58, 155.0);
+INSERT INTO segment_cross VALUES ('101003', '2-3天', '101-500', 73557, 20.76, 56474998.0, 4.13, 768.0);
+INSERT INTO segment_cross VALUES ('101003', '2-3天', '501-2000', 34115, 9.63, 103309479.0, 7.56, 3028.0);
+INSERT INTO segment_cross VALUES ('101003', '2-3天', '2001-10000', 3684, 1.04, 49589956.0, 3.63, 13461.0);
+INSERT INTO segment_cross VALUES ('101003', '2-3天', '10000+', 46, 0.01, 2841501.0, 0.21, 61772.0);
+INSERT INTO segment_cross VALUES ('101003', '4-7天', '1-100', 3113, 0.88, 588126.0, 0.04, 189.0);
+INSERT INTO segment_cross VALUES ('101003', '4-7天', '101-500', 20925, 5.9, 20066350.0, 1.47, 959.0);
+INSERT INTO segment_cross VALUES ('101003', '4-7天', '501-2000', 25259, 7.13, 89606741.0, 6.55, 3548.0);
+INSERT INTO segment_cross VALUES ('101003', '4-7天', '2001-10000', 7039, 1.99, 104715766.0, 7.66, 14877.0);
+INSERT INTO segment_cross VALUES ('101003', '4-7天', '10000+', 154, 0.04, 11083924.0, 0.81, 71974.0);
+INSERT INTO segment_cross VALUES ('101003', '8-14天', '1-100', 65, 0.02, 12487.0, 0.0, 192.0);
+INSERT INTO segment_cross VALUES ('101003', '8-14天', '101-500', 2338, 0.66, 3022070.0, 0.22, 1293.0);
+INSERT INTO segment_cross VALUES ('101003', '8-14天', '501-2000', 9837, 2.78, 44379393.0, 3.25, 4511.0);
+INSERT INTO segment_cross VALUES ('101003', '8-14天', '2001-10000', 8138, 2.3, 135773942.0, 9.93, 16684.0);
+INSERT INTO segment_cross VALUES ('101003', '8-14天', '10000+', 645, 0.18, 52149483.0, 3.81, 80852.0);
+INSERT INTO segment_cross VALUES ('101003', '15天+', '1-100', 2, 0.0, 395.0, 0.0, 198.0);
+INSERT INTO segment_cross VALUES ('101003', '15天+', '101-500', 120, 0.03, 124715.0, 0.01, 1039.0);
+INSERT INTO segment_cross VALUES ('101003', '15天+', '501-2000', 2012, 0.57, 11785901.0, 0.86, 5858.0);
+INSERT INTO segment_cross VALUES ('101003', '15天+', '2001-10000', 5960, 1.68, 151371978.0, 11.07, 25398.0);
+INSERT INTO segment_cross VALUES ('101003', '15天+', '10000+', 2417, 0.68, 476359895.0, 34.84, 197087.0);
+INSERT INTO segment_cross VALUES ('101007', '1天', '1-100', 47326, 19.15, 3179804.0, 0.36, 67.0);
+INSERT INTO segment_cross VALUES ('101007', '1天', '101-500', 20612, 8.34, 12596902.0, 1.42, 611.0);
+INSERT INTO segment_cross VALUES ('101007', '1天', '501-2000', 4684, 1.9, 11334870.0, 1.27, 2420.0);
+INSERT INTO segment_cross VALUES ('101007', '1天', '2001-10000', 206, 0.08, 2099938.0, 0.24, 10194.0);
+INSERT INTO segment_cross VALUES ('101007', '1天', '10000+', 1, 0.0, 285407.0, 0.03, 285407.0);
+INSERT INTO segment_cross VALUES ('101007', '2-3天', '1-100', 45384, 18.36, 3958526.0, 0.44, 87.0);
+INSERT INTO segment_cross VALUES ('101007', '2-3天', '101-500', 37395, 15.13, 28275518.0, 3.18, 756.0);
+INSERT INTO segment_cross VALUES ('101007', '2-3天', '501-2000', 24021, 9.72, 72052366.0, 8.1, 3000.0);
+INSERT INTO segment_cross VALUES ('101007', '2-3天', '2001-10000', 4327, 1.75, 54086048.0, 6.08, 12500.0);
+INSERT INTO segment_cross VALUES ('101007', '2-3天', '10000+', 88, 0.04, 5905428.0, 0.66, 67107.0);
+INSERT INTO segment_cross VALUES ('101007', '4-7天', '1-100', 5995, 2.43, 806070.0, 0.09, 134.0);
+INSERT INTO segment_cross VALUES ('101007', '4-7天', '101-500', 11924, 4.82, 10929805.0, 1.23, 917.0);
+INSERT INTO segment_cross VALUES ('101007', '4-7天', '501-2000', 16145, 6.53, 54074797.0, 6.08, 3349.0);
+INSERT INTO segment_cross VALUES ('101007', '4-7天', '2001-10000', 7080, 2.86, 100407440.0, 11.28, 14182.0);
+INSERT INTO segment_cross VALUES ('101007', '4-7天', '10000+', 350, 0.14, 25635549.0, 2.88, 73244.0);
+INSERT INTO segment_cross VALUES ('101007', '8-14天', '1-100', 676, 0.27, 107045.0, 0.01, 158.0);
+INSERT INTO segment_cross VALUES ('101007', '8-14天', '101-500', 2093, 0.85, 2005087.0, 0.23, 958.0);
+INSERT INTO segment_cross VALUES ('101007', '8-14天', '501-2000', 5575, 2.26, 23895172.0, 2.69, 4286.0);
+INSERT INTO segment_cross VALUES ('101007', '8-14天', '2001-10000', 6446, 2.61, 109161899.0, 12.27, 16935.0);
+INSERT INTO segment_cross VALUES ('101007', '8-14天', '10000+', 846, 0.34, 104403540.0, 11.73, 123408.0);
+INSERT INTO segment_cross VALUES ('101007', '15天+', '1-100', 27, 0.01, 3031.0, 0.0, 112.0);
+INSERT INTO segment_cross VALUES ('101007', '15天+', '101-500', 196, 0.08, 194902.0, 0.02, 994.0);
+INSERT INTO segment_cross VALUES ('101007', '15天+', '501-2000', 890, 0.36, 5102006.0, 0.57, 5733.0);
+INSERT INTO segment_cross VALUES ('101007', '15天+', '2001-10000', 3106, 1.26, 65812922.0, 7.4, 21189.0);
+INSERT INTO segment_cross VALUES ('101007', '15天+', '10000+', 1743, 0.71, 193525410.0, 21.75, 111030.0);

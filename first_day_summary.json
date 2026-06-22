@@ -1,0 +1,107 @@
+{
+  "spin_retention": [
+    {
+      "seg": "1-100",
+      "retained": 0,
+      "not_retained": 111591,
+      "total": 240136,
+      "retention_pct": 53.5,
+      "avg_rtp_ret": 0.7063,
+      "avg_rtp_not": 0.7068
+    },
+    {
+      "seg": "10000+",
+      "retained": 0,
+      "not_retained": 0,
+      "total": 11,
+      "retention_pct": 100.0,
+      "avg_rtp_ret": 1.0049,
+      "avg_rtp_not": NaN
+    },
+    {
+      "seg": "101-500",
+      "retained": 0,
+      "not_retained": 65189,
+      "total": 165234,
+      "retention_pct": 60.5,
+      "avg_rtp_ret": 0.9229,
+      "avg_rtp_not": 0.9018
+    },
+    {
+      "seg": "2001-10000",
+      "retained": 0,
+      "not_retained": 287,
+      "total": 2588,
+      "retention_pct": 88.9,
+      "avg_rtp_ret": 1.0318,
+      "avg_rtp_not": 0.9956
+    },
+    {
+      "seg": "501-2000",
+      "retained": 0,
+      "not_retained": 9656,
+      "total": 37416,
+      "retention_pct": 74.2,
+      "avg_rtp_ret": 1.023,
+      "avg_rtp_not": 0.9812
+    }
+  ],
+  "rtp_retention": [
+    {
+      "seg": "100-110%",
+      "retained": 0,
+      "not_retained": 12198,
+      "total": 32528,
+      "retention_pct": 62.5
+    },
+    {
+      "seg": "110-125%",
+      "retained": 0,
+      "not_retained": 11618,
+      "total": 31885,
+      "retention_pct": 63.6
+    },
+    {
+      "seg": "50-80%",
+      "retained": 0,
+      "not_retained": 46038,
+      "total": 106492,
+      "retention_pct": 56.8
+    },
+    {
+      "seg": "80-90%",
+      "retained": 0,
+      "not_retained": 23047,
+      "total": 56966,
+      "retention_pct": 59.5
+    },
+    {
+      "seg": "90-95%",
+      "retained": 0,
+      "not_retained": 10857,
+      "total": 28406,
+      "retention_pct": 61.8
+    },
+    {
+      "seg": "95-100%",
+      "retained": 0,
+      "not_retained": 9696,
+      "total": 25825,
+      "retention_pct": 62.5
+    },
+    {
+      "seg": "<50%",
+      "retained": 0,
+      "not_retained": 52787,
+      "total": 113791,
+      "retention_pct": 53.6
+    },
+    {
+      "seg": ">125%",
+      "retained": 0,
+      "not_retained": 20482,
+      "total": 49492,
+      "retention_pct": 58.6
+    }
+  ]
+}

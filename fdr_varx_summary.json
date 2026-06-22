@@ -1,0 +1,132 @@
+{
+  "overview": {
+    "total_records": 569971,
+    "retained": 57116,
+    "not_retained": 512855,
+    "retention_pct": 10.02,
+    "avg_spin_ret": 398.51,
+    "avg_spin_not": 172.67,
+    "med_spin_ret": 203.0,
+    "med_spin_not": 91.0,
+    "avg_rtp_ret": 0.965,
+    "avg_rtp_not": 0.8263
+  },
+  "spin_segments": [
+    {
+      "seg_label": "1-100",
+      "seg_order": 0,
+      "retained": 17618,
+      "not_retained": 273918,
+      "total": 291536,
+      "retention_pct": 6.0,
+      "avg_rtp_ret": 0.8345,
+      "avg_rtp_not": 0.7474
+    },
+    {
+      "seg_label": "101-500",
+      "seg_order": 1,
+      "retained": 25885,
+      "not_retained": 204552,
+      "total": 230437,
+      "retention_pct": 11.2,
+      "avg_rtp_ret": 1.0035,
+      "avg_rtp_not": 0.8982
+    },
+    {
+      "seg_label": "501-2000",
+      "seg_order": 2,
+      "retained": 12253,
+      "not_retained": 33019,
+      "total": 45272,
+      "retention_pct": 27.1,
+      "avg_rtp_ret": 1.0629,
+      "avg_rtp_not": 1.0262
+    },
+    {
+      "seg_label": "2001-10000",
+      "seg_order": 3,
+      "retained": 1348,
+      "not_retained": 1363,
+      "total": 2711,
+      "retention_pct": 49.7,
+      "avg_rtp_ret": 1.0425,
+      "avg_rtp_not": 1.0347
+    },
+    {
+      "seg_label": "10000+",
+      "seg_order": 4,
+      "retained": 12,
+      "not_retained": 3,
+      "total": 15,
+      "retention_pct": 80.0,
+      "avg_rtp_ret": 1.0041,
+      "avg_rtp_not": 1.0263
+    }
+  ],
+  "rtp_segments": [
+    {
+      "seg_label": "<50%",
+      "seg_order": 0,
+      "retained": 5770,
+      "not_retained": 95004,
+      "total": 100774,
+      "retention_pct": 5.7
+    },
+    {
+      "seg_label": "50-80%",
+      "seg_order": 1,
+      "retained": 11717,
+      "not_retained": 155567,
+      "total": 167284,
+      "retention_pct": 7.0
+    },
+    {
+      "seg_label": "80-90%",
+      "seg_order": 2,
+      "retained": 7415,
+      "not_retained": 73122,
+      "total": 80537,
+      "retention_pct": 9.2
+    },
+    {
+      "seg_label": "90-95%",
+      "seg_order": 3,
+      "retained": 4415,
+      "not_retained": 33297,
+      "total": 37712,
+      "retention_pct": 11.7
+    },
+    {
+      "seg_label": "95-100%",
+      "seg_order": 4,
+      "retained": 4581,
+      "not_retained": 30256,
+      "total": 34837,
+      "retention_pct": 13.1
+    },
+    {
+      "seg_label": "100-110%",
+      "seg_order": 5,
+      "retained": 6612,
+      "not_retained": 37442,
+      "total": 44054,
+      "retention_pct": 15.0
+    },
+    {
+      "seg_label": "110-125%",
+      "seg_order": 6,
+      "retained": 7446,
+      "not_retained": 35579,
+      "total": 43025,
+      "retention_pct": 17.3
+    },
+    {
+      "seg_label": ">125%",
+      "seg_order": 7,
+      "retained": 9160,
+      "not_retained": 52588,
+      "total": 61748,
+      "retention_pct": 14.8
+    }
+  ]
+}
